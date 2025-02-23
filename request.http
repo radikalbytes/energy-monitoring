@@ -1,4 +1,4 @@
-POST http://localhost:3000/api/data
+POST https://vercel.com/radikalbytes-projects/energy-monitoring/api/data
 Content-Type: application/json
 
 {"uuid":"c342eafb-dba4-4d7f-8d44-eafd08528743","irms":5.2,"power":1200,"temperature":25.5,"humidity":60}
