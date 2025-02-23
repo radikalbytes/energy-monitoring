@@ -8,7 +8,8 @@ AEMET_URL = "https://opendata.aemet.es/opendata/api/observacion/convencional/dat
 AEMET_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJyYWRpa2FsYnl0ZXNAZ21haWwuY29tIiwianRpIjoiM2M0OTg4ODEtOTE5Yy00N2RiLWE2YjctZTExNDAwMDdhZjU3IiwiaXNzIjoiQUVNRVQiLCJpYXQiOjE3NDAzMTIwMjgsInVzZXJJZCI6IjNjNDk4ODgxLTkxOWMtNDdkYi1hNmI3LWUxMTQwMDA3YWY1NyIsInJvbGUiOiIifQ.XDrHCESU0Bt03zo1iPzy2oSlxZGL0EWRts0W0yywWBI"
 
 # URL de destino para enviar los datos
-DEST_URL = "http://localhost:3000/api/data"
+# DEST_URL = "http://localhost:3000/api/data"
+DEST_URL = "https://vercel.com/radikalbytes-projects/energy-monitoring/api/data"
 
 # Generar un UUID único
 device_uuid = "c342eafb-dba4-4d7f-8d44-eafd08528743"

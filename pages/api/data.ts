@@ -16,8 +16,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       saveEnergyData(data);
       res.status(201).json({ message: 'Data saved successfully' });
     } catch (error) {
-      console.error('Error al guardar datos:', error);
-      res.status(500).json({ error: 'Internal server error' });
+      console.error('Error al guardar datos:', error); // Usa error aquí
+      res.status(500).json({ error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}` });
     }
   } else if (req.method === 'GET') {
     const { uuid, timeRange } = req.query;
@@ -29,7 +29,8 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       const devices = getDevices();
       res.status(200).json({ energyData, devices });
     } catch (error) {
-      res.status(500).json({ error: 'Internal server error' });
+      console.error('Error al obtener datos:', error); // Usa error aquí también
+      res.status(500).json({ error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}` });
     }
   } else {
     res.status(405).json({ error: 'Method not allowed' });
