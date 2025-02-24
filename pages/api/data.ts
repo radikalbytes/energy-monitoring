@@ -13,17 +13,21 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Resto del código igual que antes...
+  console.log('Método recibido:', req.method); // Log para verificar el método
+
   if (req.method === 'POST') {
-    console.log('Cuerpo recibido:', req.body);
+    console.log('Cuerpo recibido en POST:', req.body); // Log del cuerpo crudo
+
     const data: EnergyData = req.body;
 
+    // Validación de campos requeridos
     if (!data.uuid || !data.irms || !data.power || !data.temperature || !data.humidity) {
       console.log('Campos faltantes en:', data);
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     try {
+      console.log('Intentando insertar en Supabase:', data); // Log antes de la inserción
       const { error } = await supabase
         .from('energy_data')
         .insert({
@@ -35,12 +39,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           timestamp: new Date().toISOString(),
         });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error de Supabase:', error); // Log específico del error de Supabase
+        throw error;
+      }
 
-      res.status(201).json({ message: 'Data saved successfully' });
+      console.log('Datos insertados con éxito');
+      return res.status(201).json({ message: 'Data saved successfully' });
     } catch (error) {
-      console.error('Error al guardar datos:', error);
-      res.status(500).json({
+      console.error('Error al guardar datos:', error); // Log detallado
+      return res.status(500).json({
         error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
@@ -70,14 +78,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .select('*');
       if (devicesError) throw devicesError;
 
-      res.status(200).json({ energyData, devices });
+      return res.status(200).json({ energyData, devices });
     } catch (error) {
       console.error('Error al obtener datos:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
   } else {
-    res.status(405).json({ error: 'Method not allowed' });
+    console.log('Método no permitido:', req.method);
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 }
