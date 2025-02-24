@@ -30,7 +30,7 @@ export default function Home() {
   return (
     <div className="container mx-auto p-4 dark:bg-gray-900 min-h-screen">
       <div className="flex justify-between items-center mb-4">
-        <h1 className="text-2xl font-bold dark:text-white">Monitoreo de Energía</h1>
+        <h1 className="text-2xl font-bold dark:text-white">Monitor de Energía</h1>
         <DarkModeSwitch />
       </div>
       <div className="flex gap-4 mb-4">
