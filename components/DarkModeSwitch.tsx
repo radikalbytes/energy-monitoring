@@ -17,14 +17,13 @@ export default function DarkModeSwitch() {
   return (
     <div className="flex items-center gap-2">
       <span className="text-sm dark:text-white">{isDark ? 'Oscuro' : 'Claro'}</span>
-      <label className="relative inline-flex items-center cursor-pointer">
-        <input
-          type="checkbox"
+      <label className="relative inline-block h-8 w-14 cursor-pointer rounded-full bg-gray-300 transition [-webkit-tap-highlight-color:_transparent] has-[:checked]:bg-green-500" htmlFor="dark_mode">
+        <input type="checkbox" id="dark_mode" className="peer sr-only" 
           checked={isDark}
           onChange={() => setIsDark(!isDark)}
-          className="sr-only peer"
         />
-        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+        <span className="absolute inset-y-0 start-0 m-1 size-6 rounded-full bg-white transition-all peer-checked:start-6"
+        ></span>
       </label>
     </div>
   );
