@@ -13,21 +13,19 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  console.log('Método recibido:', req.method); // Log para verificar el método
+  console.log('Método recibido:', req.method);
 
   if (req.method === 'POST') {
-    console.log('Cuerpo recibido en POST:', req.body); // Log del cuerpo crudo
-
+    console.log('Cuerpo recibido en POST:', req.body);
     const data: EnergyData = req.body;
 
-    // Validación de campos requeridos
     if (!data.uuid || !data.irms || !data.power || !data.temperature || !data.humidity) {
       console.log('Campos faltantes en:', data);
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     try {
-      console.log('Intentando insertar en Supabase:', data); // Log antes de la inserción
+      console.log('Intentando insertar en Supabase:', data);
       const { error } = await supabase
         .from('energy_data')
         .insert({
@@ -40,14 +38,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
 
       if (error) {
-        console.error('Error de Supabase:', error); // Log específico del error de Supabase
+        console.error('Error de Supabase:', error);
         throw error;
       }
 
       console.log('Datos insertados con éxito');
       return res.status(201).json({ message: 'Data saved successfully' });
     } catch (error) {
-      console.error('Error al guardar datos:', error); // Log detallado
+      console.error('Error al guardar datos:', error);
       return res.status(500).json({
         error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
@@ -81,6 +79,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ energyData, devices });
     } catch (error) {
       console.error('Error al obtener datos:', error);
+      return res.status(500).json({
+        error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    }
+  } else if (req.method === 'DELETE') {
+    try {
+      console.log('Solicitud para borrar datos recibida');
+      const { error } = await supabase
+        .from('energy_data')
+        .delete()
+        .neq('id', 0); // Borrar todos los registros (neq evita errores si la tabla está vacía)
+
+      if (error) {
+        console.error('Error al borrar datos:', error);
+        throw error;
+      }
+
+      console.log('Datos borrados con éxito');
+      return res.status(200).json({ message: 'All energy data deleted successfully' });
+    } catch (error) {
+      console.error('Error al borrar datos:', error);
       return res.status(500).json({
         error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });

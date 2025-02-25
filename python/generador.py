@@ -97,4 +97,4 @@ while True:
         print(f"❌ Se produjo un error: {e}")
 
     # Esperar 60 segundos antes de la siguiente solicitud
-    time.sleep(10)
+    time.sleep(300)

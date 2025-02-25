@@ -10,6 +10,32 @@ export default function Home() {
   const [devices, setDevices] = useState<string[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<number>(3600000);
+  const [loading, setLoading] = useState(false);
+
+  const handleDeleteData = async () => {
+    if (!confirm('¿Estás seguro de que quieres borrar todos los datos?')) return;
+
+    setLoading(true);
+    try {
+      const response = await fetch('/api/data', {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        throw new Error('Error al borrar los datos');
+      }
+
+      const result = await response.json();
+      console.log(result.message);
+      // Opcional: recargar datos para actualizar las gráficas
+      window.location.reload();
+    } catch (error) {
+      console.error('Error:', error);
+      alert('No se pudo borrar los datos');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const fetchData = async () => {
@@ -36,6 +62,16 @@ export default function Home() {
       <div className="flex gap-4 mb-4">
         <DeviceSelector devices={devices} selectedDevice={selectedDevice} onSelect={setSelectedDevice} />
         <TimeRangeSelector onSelect={setTimeRange} />
+      </div>
+      <div>
+        {/* Tus gráficas aquí */}
+        <button
+          onClick={handleDeleteData}
+          disabled={loading}
+          style={{ padding: '10px', margin: '10px', backgroundColor: '#ff4444', color: 'white', border: 'none', cursor: 'pointer' }}
+        >
+          {loading ? 'Borrando...' : 'Borrar todos los datos'}
+        </button>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ChartCard title="Corriente RMS (A)" data={data} dataKey="irms" />
