@@ -4,6 +4,7 @@ import DeviceSelector from '../components/DeviceSelector';
 import TimeRangeSelector from '../components/TimeRangeSelector';
 import DarkModeSwitch from '../components/DarkModeSwitch'; // Importa el nuevo componente
 import { EnergyData } from '../types/energyData';
+import { useTheme } from 'next-themes';
 
 export default function Home() {
   const [data, setData] = useState<EnergyData[]>([]);
@@ -11,6 +12,7 @@ export default function Home() {
   const [selectedDevice, setSelectedDevice] = useState<string | null>(null);
   const [timeRange, setTimeRange] = useState<number>(3600000);
   const [loading, setLoading] = useState(false);
+  const { theme, setTheme } = useTheme();
 
   const handleDeleteData = async () => {
     if (!confirm('¿Estás seguro de que quieres borrar todos los datos?')) return;
@@ -72,6 +74,7 @@ export default function Home() {
           {loading ? 'Borrando...' : 'Borrar todos los datos'}
         </button>
       </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ChartCard title="Corriente RMS (A)" data={data} dataKey="irms" />
         <ChartCard title="Potencia (W)" data={data} dataKey="power" />
