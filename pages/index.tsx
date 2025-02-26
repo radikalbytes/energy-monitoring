@@ -49,8 +49,7 @@ export default function Home() {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchData, 180000); //Actualización cada 3 minutos
   }, [selectedDevice, timeRange]);
 
   return (

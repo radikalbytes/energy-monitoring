@@ -1,7 +1,19 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
-
+/* Modo claro por defecto */
 body {
-  @apply bg-gray-100 dark:bg-gray-900;
+  background-color: #ffffff;
+  color: #000000;
+}
+
+/* Modo oscuro */
+.dark body {
+  background-color: #1a1a1a;
+  color: #ffffff;
+}
+
+/* Estilos para tus gráficas (ejemplo con react-apexcharts) */
+.chart {
+  background-color: #f0f0f0;
+}
+.dark .chart {
+  background-color: #333333;
 }

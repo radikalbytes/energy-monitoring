@@ -5,7 +5,7 @@ interface TimeRangeSelectorProps {
   export default function TimeRangeSelector({ onSelect }: TimeRangeSelectorProps) {
     const ranges = {
       'Última hora': 3600000,
-      'Último día': 86400000,
+      'Últimas 24h': 86400000,
       'Última semana': 604800000,
       'Último mes': 2592000000,
       'Último año': 31536000000, // 365 días en milisegundos

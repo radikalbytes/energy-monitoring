@@ -14,16 +14,19 @@
     "apexcharts": "^4.5.0",
     "better-sqlite3": "^9.4.1",
     "next": "^14.2.24",
+    "next-themes": "^0.4.4",
     "react": "18.2.0",
     "react-apexcharts": "^1.4.1",
-    "react-dom": "18.2.0",
-    "tailwindcss": "^3.4.1"
+    "react-dom": "18.2.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.9",
     "@types/node": "20.11.19",
     "@types/react": "18.2.55",
     "@types/react-dom": "18.2.19",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.0",
     "typescript": "5.3.3"
   }
 }
