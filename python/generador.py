@@ -3,9 +3,13 @@ import json
 import time
 import uuid
 import random
+import os
 
 AEMET_URL = "https://opendata.aemet.es/opendata/api/observacion/convencional/datos/estacion/1495"
-AEMET_API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJyYWRpa2FsYnl0ZXNAZ21haWwuY29tIiwianRpIjoiM2M0OTg4ODEtOTE5Yy00N2RiLWE2YjctZTExNDAwMDdhZjU3IiwiaXNzIjoiQUVNRVQiLCJpYXQiOjE3NDAzMTIwMjgsInVzZXJJZCI6IjNjNDk4ODgxLTkxOWMtNDdkYi1hNmI3LWUxMTQwMDA3YWY1NyIsInJvbGUiOiIifQ.XDrHCESU0Bt03zo1iPzy2oSlxZGL0EWRts0W0yywWBI"
+AEMET_API_KEY = os.getenv("AEMET_API_KEY")
+
+if not AEMET_API_KEY:
+    raise RuntimeError("La variable de entorno AEMET_API_KEY es obligatoria")
 
 # URL de destino para enviar los datos
 # DEST_URL = "http://localhost:3000/api/data"
@@ -31,13 +35,13 @@ def obtener_datos_meteorologicos():
     while intentos < 3:
         try:
             headers = {"api_key": AEMET_API_KEY}
-            response = requests.get(AEMET_URL, headers=headers)
+            response = requests.get(AEMET_URL, headers=headers, timeout=15)
 
             if response.status_code == 200:
                 data = response.json()
                 if "datos" in data:
                     datos_url = data["datos"]
-                    response_data = requests.get(datos_url)
+                    response_data = requests.get(datos_url, timeout=15)
 
                     if response_data.status_code == 200:
                         datos_meteorologicos = response_data.json()
@@ -68,6 +72,11 @@ while True:
         # Obtener temperatura y humedad
         temperature, humidity = obtener_datos_meteorologicos()
 
+        if temperature is None or humidity is None:
+            print("⚠ Muestra omitida: no hay datos meteorológicos válidos para guardar.")
+            time.sleep(300)
+            continue
+
         # Generar valores de consumo eléctrico simulados
         power = random.uniform(POWER_MEAN - POWER_VARIATION, POWER_MEAN + POWER_VARIATION)  # W
         irms = power / VOLTAGE  # A
@@ -79,16 +88,14 @@ while True:
             "power": round(power, 2)
         }
 
-        # Solo incluir temperatura y humedad si hay valores válidos
-        if temperature is not None and humidity is not None:
-            payload["temperature"] = temperature
-            payload["humidity"] = humidity
+        payload["temperature"] = temperature
+        payload["humidity"] = humidity
 
         # Enviar los datos mediante una solicitud POST
         headers = {'Content-Type': 'application/json'}
-        post_response = requests.post(DEST_URL, data=json.dumps(payload), headers=headers)
+        post_response = requests.post(DEST_URL, data=json.dumps(payload), headers=headers, timeout=15)
 
-        if post_response.status_code == 200:
+        if post_response.status_code in (200, 201):
             print("✅ Datos enviados correctamente:", payload)
         else:
             print(f"❌ Error al enviar los datos: {post_response.status_code}", payload)

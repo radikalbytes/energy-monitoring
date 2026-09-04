@@ -20,6 +20,23 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Generador de datos
+
+El generador necesita una clave válida de AEMET en la variable de entorno `AEMET_API_KEY`:
+
+```bash
+cp .env.example .env
+# Edita .env y sustituye el valor de ejemplo por tu clave real.
+set -a
+. ./.env
+set +a
+python3 python/generador.py
+```
+
+Si AEMET no responde y no hay valores meteorológicos anteriores, el generador omite esa muestra para respetar los campos obligatorios de la tabla `energy_data`.
+
+En Vercel, añade `AEMET_API_KEY` en **Project Settings > Environment Variables** y vuelve a desplegar el proyecto. Esa variable estará disponible para las funciones de Vercel; si `generador.py` se ejecuta en tu ordenador o en otro servidor, también debes configurarla allí.
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

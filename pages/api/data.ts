@@ -19,7 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log('Cuerpo recibido en POST:', req.body);
     const data: EnergyData = req.body;
 
-    if (!data.uuid || !data.irms || !data.power || !data.temperature || !data.humidity) {
+    if (!data.uuid || data.irms == null || data.power == null || data.temperature == null || data.humidity == null) {
       console.log('Campos faltantes en:', data);
       return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -34,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           power: data.power,
           temperature: data.temperature,
           humidity: data.humidity,
-          timestamp: new Date().toISOString(),
+          timestamp: Date.now(),
         });
 
       if (error) {

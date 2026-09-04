@@ -1,5 +1,4 @@
-module.exports = {
-  api: {
-    bodyParser: true,
-  },
-};
+/** @type {import('next').NextConfig} */
+const nextConfig = {};
+
+module.exports = nextConfig;

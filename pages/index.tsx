@@ -40,18 +40,41 @@ export default function Home() {
   };
 
   useEffect(() => {
+    let cancelled = false;
+
     const fetchData = async () => {
-      const url = selectedDevice
-        ? `/api/data?uuid=${selectedDevice}&timeRange=${timeRange}`
-        : `/api/data?timeRange=${timeRange}`;
-      const response = await fetch(url);
-      const result = await response.json();
-      setData(result.energyData);
-      setDevices(result.devices);
+      try {
+        const url = selectedDevice
+          ? `/api/data?uuid=${encodeURIComponent(selectedDevice)}&timeRange=${timeRange}`
+          : `/api/data?timeRange=${timeRange}`;
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(result.error || 'No se pudieron cargar los datos');
+        }
+
+        if (!cancelled) {
+          setData(result.energyData || []);
+          setDevices((result.devices || []).map((device: string | { uuid: string }) =>
+            typeof device === 'string' ? device : device.uuid,
+          ));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Error al cargar los datos:', error);
+          setData([]);
+        }
+      }
     };
 
     fetchData();
     const interval = setInterval(fetchData, 180000); //Actualización cada 3 minutos
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, [selectedDevice, timeRange]);
 
   return (
