@@ -30,8 +30,12 @@ cp .env.example .env
 set -a
 . ./.env
 set +a
+npm run dev
+# En otra terminal:
 python3 python/generador.py
 ```
+
+Por defecto el generador envía las muestras a `http://localhost:3000/api/data`. Para enviarlas a producción, define `DEST_URL` antes de ejecutarlo.
 
 Si AEMET no responde y no hay valores meteorológicos anteriores, el generador omite esa muestra para respetar los campos obligatorios de la tabla `energy_data`.
 

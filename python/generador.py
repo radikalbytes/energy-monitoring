@@ -12,8 +12,7 @@ if not AEMET_API_KEY:
     raise RuntimeError("La variable de entorno AEMET_API_KEY es obligatoria")
 
 # URL de destino para enviar los datos
-# DEST_URL = "http://localhost:3000/api/data"
-DEST_URL = "https://energy-monitoring.vercel.app/api/data"
+DEST_URL = os.getenv("DEST_URL", "http://localhost:3000/api/data")
 
 # Generar un UUID único
 device_uuid = "c342eafb-dba4-4d7f-8d44-eafd08528743"

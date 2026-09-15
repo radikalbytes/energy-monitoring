@@ -4,10 +4,10 @@ import { EnergyData } from '../../types/energyData';
 
 // Validar variables de entorno
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  throw new Error('Missing Supabase environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be defined');
+  throw new Error('Missing Supabase environment variables: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY must be defined');
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
@@ -63,18 +63,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         energyQuery = energyQuery.eq('uuid', uuid);
       }
       if (typeof timeRange === 'string') {
-        const timeRangeMs = parseInt(timeRange);
-        const startTime = new Date(Date.now() - timeRangeMs).toISOString();
-        energyQuery = energyQuery.gte('timestamp', startTime);
+        const timeRangeMs = Number(timeRange);
+        if (Number.isFinite(timeRangeMs) && timeRangeMs > 0) {
+          energyQuery = energyQuery.gte('timestamp', Date.now() - timeRangeMs);
+        }
       }
 
       const { data: energyData, error: energyError } = await energyQuery;
       if (energyError) throw energyError;
 
-      const { data: devices, error: devicesError } = await supabase
-        .from('devices')
-        .select('*');
+      const { data: deviceRows, error: devicesError } = await supabase
+        .from('energy_data')
+        .select('uuid');
       if (devicesError) throw devicesError;
+
+      const devices = [...new Set(deviceRows.map(({ uuid }) => uuid))];
 
       return res.status(200).json({ energyData, devices });
     } catch (error) {
