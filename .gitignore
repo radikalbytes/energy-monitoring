@@ -46,3 +46,5 @@ next-env.d.ts
 energy_data.sql
 energy_dump.sql
 devices.sql
+supabase/.temp/
+.vercel
