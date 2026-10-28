@@ -41,6 +41,15 @@ const NOMINAL_STEP = 5 * 60_000;
 const MAX_GAP = 15 * 60_000;
 
 export const isValidClimate = (d: EnergyData) => !(d.temperature === 0 && d.humidity === 0);
+// Humedad 0 = sin dato (el firmware la descarta); >95 % sostenido indica sensor saturado.
+export const HUMIDITY_MAX_VALID = 95;
+export const isValidHumidity = (d: EnergyData) => isValidClimate(d) && d.humidity > 0 && d.humidity <= HUMIDITY_MAX_VALID;
+export function humiditySensorSuspect(data: EnergyData[], now = Date.now()): boolean {
+  const recent = data.filter((d) => now - d.timestamp < 3 * 3600_000 && isValidClimate(d));
+  if (recent.length < 5) return false;
+  const bad = recent.filter((d) => d.humidity === 0 || d.humidity > HUMIDITY_MAX_VALID).length;
+  return bad / recent.length >= 0.8;
+}
 
 // Integra la potencia (W) en el tiempo; los huecos largos (sin datos) no suman consumo.
 export function kwhBetween(data: EnergyData[], from: number, to: number): number {
@@ -183,7 +192,7 @@ export function summarize(all: EnergyData[], periodMs: number, settings: Setting
     online: !!last && now - last.timestamp < 12 * 60_000,
     deltaKwhPct: prevKwh > 0.01 ? ((kwh - prevKwh) / prevKwh) * 100 : null,
     avgTemp: climate.length ? climate.reduce((a, d) => a + d.temperature, 0) / climate.length : null,
-    avgHum: climate.length ? climate.reduce((a, d) => a + d.humidity, 0) / climate.length : null,
+    avgHum: climate.filter(isValidHumidity).length ? climate.filter(isValidHumidity).reduce((a, d) => a + d.humidity, 0) / climate.filter(isValidHumidity).length : null,
   };
 }
 

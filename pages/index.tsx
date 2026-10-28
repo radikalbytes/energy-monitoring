@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import { useTheme } from 'next-themes';
 import { EnergyData } from '../types/energyData';
 import {
-  PERIODS, PeriodKey, Summary, bucketize, kwhBetween, buildInsights, comfort, fmt, fmtEur, isValidClimate, summarize,
+  PERIODS, PeriodKey, Summary, bucketize, kwhBetween, buildInsights, comfort, fmt, fmtEur, isValidClimate, isValidHumidity, humiditySensorSuspect, summarize,
 } from '../lib/energy';
 import { generateDemo } from '../lib/demo';
 import {
@@ -228,7 +228,8 @@ export default function Home() {
   const cur = summary?.current;
   const live = !!summary?.online;
   const budgetPct = settings.monthlyBudget > 0 && summary ? (summary.monthProjectionCost / settings.monthlyBudget) * 100 : 0;
-  const climate = cur && isValidClimate(cur) ? comfort(cur.temperature, cur.humidity) : null;
+  const climate = cur && isValidHumidity(cur) ? comfort(cur.temperature, cur.humidity) : null;
+  const humSuspect = !demo && humiditySensorSuspect(all, now);
 
   return (
     <div className="mx-auto max-w-7xl px-4 pb-16 pt-5 sm:px-6 lg:px-8">
@@ -311,6 +312,13 @@ export default function Home() {
             </div>
           )}
 
+          {humSuspect && (
+            <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+              <Icon name="bolt" className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>Sensor de humedad posiblemente defectuoso: marca valores saturados (por encima del 95 %). Revísalo, sécalo o sustitúyelo; mientras tanto no se muestra la humedad.</p>
+            </div>
+          )}
+
           {/* Hero */}
           <section className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 p-6 text-white shadow-xl shadow-indigo-600/25 sm:p-8">
             <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
@@ -345,7 +353,7 @@ export default function Home() {
                     ['Corriente', cur ? `${fmt(cur.irms, 2)} A` : '—'],
                     ['Pico del periodo', `${fmt(summary.peakPower, 0)} W`],
                     ['Temperatura', cur && isValidClimate(cur) ? `${fmt(cur.temperature, 1)} °C` : '—'],
-                    ['Humedad', cur && isValidClimate(cur) ? `${fmt(cur.humidity, 0)} %` : '—'],
+                    ['Humedad', cur && isValidHumidity(cur) ? `${fmt(cur.humidity, 0)} %` : '—'],
                   ].map(([k, v]) => (
                     <div key={k} className="rounded-2xl bg-white/12 px-4 py-3 backdrop-blur-sm ring-1 ring-white/15">
                       <p className="text-xs text-white/70">{k}</p>
@@ -505,7 +513,7 @@ export default function Home() {
               />
               <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                 <Mini icon="thermo" label="Temperatura" value={cur && isValidClimate(cur) ? `${fmt(cur.temperature, 1)} °C` : '—'} tint="text-orange-500 bg-orange-500/10" />
-                <Mini icon="drop" label="Humedad" value={cur && isValidClimate(cur) ? `${fmt(cur.humidity, 0)} %` : '—'} tint="text-sky-500 bg-sky-500/10" />
+                <Mini icon="drop" label="Humedad" value={cur && isValidHumidity(cur) ? `${fmt(cur.humidity, 0)} %` : '—'} tint="text-sky-500 bg-sky-500/10" />
                 <Mini icon="thermo" label="Media periodo" value={summary.avgTemp !== null ? `${fmt(summary.avgTemp, 1)} °C` : '—'} tint="text-orange-500 bg-orange-500/10" />
                 <Mini icon="drop" label="Media periodo" value={summary.avgHum !== null ? `${fmt(summary.avgHum, 0)} %` : '—'} tint="text-sky-500 bg-sky-500/10" />
               </div>
