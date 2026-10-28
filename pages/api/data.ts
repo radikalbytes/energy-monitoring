@@ -62,31 +62,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const { uuid, timeRange } = req.query;
 
     try {
-      let energyQuery = supabase
-        .from('energy_data')
-        .select('*')
-        .order('timestamp', { ascending: true });
-
-      if (typeof uuid === 'string') {
-        energyQuery = energyQuery.eq('uuid', uuid);
-      }
-      if (typeof timeRange === 'string') {
-        const timeRangeMs = Number(timeRange);
-        if (Number.isFinite(timeRangeMs) && timeRangeMs > 0) {
-          energyQuery = energyQuery.gte('timestamp', Date.now() - timeRangeMs);
+      const PAGE = 1000;
+      const MAX_ROWS = 60000;
+      const buildQuery = () => {
+        let q = supabase.from('energy_data').select('*', { count: 'exact' });
+        if (typeof uuid === 'string') q = q.eq('uuid', uuid);
+        if (typeof timeRange === 'string') {
+          const timeRangeMs = Number(timeRange);
+          if (Number.isFinite(timeRangeMs) && timeRangeMs > 0) {
+            q = q.gte('timestamp', Date.now() - timeRangeMs);
+          }
         }
-      }
+        return q.order('timestamp', { ascending: true });
+      };
 
-      const { data: energyData, error: energyError } = await energyQuery;
-      if (energyError) throw energyError;
+      const first = await buildQuery().range(0, PAGE - 1);
+      if (first.error) throw first.error;
+      const total = Math.min(first.count ?? first.data.length, MAX_ROWS);
+      const energyData = [...first.data];
+
+      const pages: number[] = [];
+      for (let from = PAGE; from < total; from += PAGE) pages.push(from);
+      const rest = await Promise.all(pages.map((from) => buildQuery().range(from, from + PAGE - 1)));
+      for (const page of rest) {
+        if (page.error) throw page.error;
+        energyData.push(...page.data);
+      }
 
       const { data: deviceRows, error: devicesError } = await supabase
         .from('energy_data')
-        .select('uuid');
+        .select('uuid')
+        .order('timestamp', { ascending: false })
+        .limit(1000);
       if (devicesError) throw devicesError;
 
       const devices = [...new Set(deviceRows.map(({ uuid }) => uuid))];
 
+      res.setHeader('Cache-Control', 'no-store');
       return res.status(200).json({ energyData, devices });
     } catch (error) {
       console.error('Error al obtener datos:', error);

@@ -1,19 +1,24 @@
-/* Modo claro por defecto */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
+}
+
 body {
-  background-color: #ffffff;
-  color: #000000;
+  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  background-image:
+    radial-gradient(60rem 30rem at 10% -10%, rgba(99, 102, 241, 0.10), transparent 60%),
+    radial-gradient(50rem 30rem at 100% 0%, rgba(16, 185, 129, 0.08), transparent 60%);
+  background-attachment: fixed;
 }
 
-/* Modo oscuro */
-.dark body {
-  background-color: #1a1a1a;
-  color: #ffffff;
-}
-
-/* Estilos para tus gráficas (ejemplo con react-apexcharts) */
-.chart {
-  background-color: #f0f0f0;
-}
-.dark .chart {
-  background-color: #333333;
+.apexcharts-tooltip {
+  border-radius: 12px !important;
+  box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.35) !important;
 }
