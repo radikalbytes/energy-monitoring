@@ -103,7 +103,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     try {
       console.log('Solicitud para borrar datos recibida');
-      const adminClient = createClient(supabaseUrl, serviceKey);
+      const adminClient = createClient(supabaseUrl as string, serviceKey);
       const { error } = await adminClient
         .from('energy_data')
         .delete()
