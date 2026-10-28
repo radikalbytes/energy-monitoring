@@ -3,11 +3,14 @@ import { useRouter } from 'next/router';
 import { useTheme } from 'next-themes';
 import { EnergyData } from '../types/energyData';
 import {
-  PERIODS, PeriodKey, Summary, bucketize, buildInsights, comfort, fmt, fmtEur, isValidClimate, summarize,
+  PERIODS, PeriodKey, Summary, bucketize, kwhBetween, buildInsights, comfort, fmt, fmtEur, isValidClimate, summarize,
 } from '../lib/energy';
 import { generateDemo } from '../lib/demo';
+import {
+  BAND_COLORS, BAND_LABELS, COMERCIALIZADORAS, DISCOUNT_LABELS, HourBand, PvpcPoint, annualStatus, classifyDay,
+} from '../lib/tariffs';
 import { Card, CardHeader, Delta, Icon, StatCard } from '../components/ui';
-import { ClimateChart, ConsumptionBars, HourlyBars, PowerArea, PowerGauge } from '../components/Charts';
+import { ClimateChart, ConsumptionBars, HourlyBars, PowerArea, PowerGauge, PvpcChart } from '../components/Charts';
 import SettingsModal, { useSettings } from '../components/SettingsModal';
 
 const REFRESH_MS = 60_000;
@@ -18,6 +21,21 @@ const TONE = {
   info: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
   bad: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
 };
+
+const hh = (ts: number) => `${new Date(ts).getHours().toString().padStart(2, '0')}:00`;
+
+function bandRanges(points: PvpcPoint[], bands: HourBand[], band: HourBand): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < points.length) {
+    if (bands[i] !== band) { i++; continue; }
+    let j = i;
+    while (j + 1 < points.length && bands[j + 1] === band) j++;
+    out.push(`${hh(points[i].ts)}–${hh(points[j].ts + 3600_000)}`);
+    i = j + 1;
+  }
+  return out.join(', ') || '—';
+}
 
 const timeAgo = (ts: number, now: number) => {
   const m = Math.round((now - ts) / 60_000);
@@ -99,9 +117,84 @@ export default function Home() {
 
   const all = useMemo(() => (rows ?? []).filter((d) => !device || demo || d.uuid === device), [rows, device, demo]);
   const from = now - periodDef.ms;
+
+  // Tarifa: precio PVPC por horas (REE) o precio fijo, más el descuento social si procede.
+  const isPvpc = !!COMERCIALIZADORAS.find((c) => c.id === settings.comercializadora)?.pvpc;
+  const [pvpc, setPvpc] = useState<PvpcPoint[]>([]);
+  const [pvpcError, setPvpcError] = useState<string | null>(null);
+  const [pvpcDay, setPvpcDay] = useState<'today' | 'tomorrow'>('today');
+  const [annualKwh, setAnnualKwh] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isPvpc) return;
+    let alive = true;
+    const run = async () => {
+      try {
+        const r = await fetch('/api/pvpc');
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Error al obtener el PVPC');
+        if (alive) { setPvpc(j.points); setPvpcError(null); }
+      } catch (e) {
+        if (alive) setPvpcError(e instanceof Error ? e.message : 'No se pudo obtener el PVPC');
+      }
+    };
+    run();
+    const id = setInterval(run, 15 * 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, [isPvpc]);
+
+  const periodStartMs = useMemo(() => new Date(`${settings.periodStart}T00:00:00`).getTime(), [settings.periodStart]);
+  const hasDiscount = settings.discount !== 'none';
+
+  useEffect(() => {
+    if (!hasDiscount || !device) return;
+    if (demo) { setAnnualKwh(kwhBetween(all, periodStartMs, Date.now() + 1)); return; }
+    let alive = true;
+    const run = async () => {
+      try {
+        const r = await fetch(`/api/annual?uuid=${encodeURIComponent(device)}&since=${periodStartMs}`);
+        const j = await r.json();
+        if (r.ok && alive) setAnnualKwh(j.kwh);
+      } catch { /* se mantiene el último valor */ }
+    };
+    run();
+    const id = setInterval(run, 10 * 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, [hasDiscount, device, demo, all, periodStartMs]);
+
+  const dayKey = (ts: number) => new Date(ts).toDateString();
+  const todayKey = dayKey(now);
+  const pvpcToday = useMemo(() => pvpc.filter((p) => dayKey(p.ts) === todayKey), [pvpc, todayKey]);
+  const pvpcTomorrow = useMemo(() => pvpc.filter((p) => dayKey(p.ts) === dayKey(now + 86400_000)), [pvpc, now]);
+  const shown = pvpcDay === 'tomorrow' && pvpcTomorrow.length >= 20 ? pvpcTomorrow : pvpcToday;
+  const bands = useMemo(() => classifyDay(shown), [shown]);
+  const avgToday = pvpcToday.length ? pvpcToday.reduce((a, p) => a + p.price, 0) / pvpcToday.length : null;
+  const nowPrice = pvpcToday.find((p) => now >= p.ts && now < p.ts + 3600_000)?.price ?? null;
+
+  const limit = settings.householdLimits[settings.household];
+  const annual = annualKwh != null && hasDiscount ? annualStatus(annualKwh, limit, periodStartMs, now) : null;
+  const discountRate = hasDiscount ? settings.discountRates[settings.discount as Exclude<typeof settings.discount, 'none'>] / 100 : 0;
+  const discountActive = hasDiscount && !(annual?.exceeded);
+  const grossPrice = isPvpc ? avgToday ?? settings.price : settings.price;
+  const price = grossPrice * (discountActive ? 1 - discountRate : 1);
+  const eff = useMemo(() => ({ ...settings, price }), [settings, price]);
+
+  const alertLevel = settings.alerts && annual ? (annual.exceeded ? 'exceeded' : annual.pct >= 80 ? 'warning' : null) : null;
+  useEffect(() => {
+    if (!alertLevel || !annual || demo) return;
+    const key = `energy-alert-${alertLevel}-${settings.periodStart}-${settings.household}`;
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, '1');
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      new Notification(
+        alertLevel === 'exceeded' ? 'Has superado el límite del bono social' : 'Te acercas al límite del bono social',
+        { body: `${annual.used.toFixed(0)} de ${annual.limit.toFixed(0)} kWh anuales con descuento.` },
+      );
+    }
+  }, [alertLevel, annual, demo, settings.periodStart, settings.household]);
   const summary: Summary | null = useMemo(
-    () => (rows ? summarize(all, periodDef.ms, settings, now) : null),
-    [rows, all, periodDef.ms, settings, now],
+    () => (rows ? summarize(all, periodDef.ms, eff, now) : null),
+    [rows, all, periodDef.ms, eff, now],
   );
   const current = useMemo(() => all.filter((d) => d.timestamp >= from), [all, from]);
   const daily = period !== '24h';
@@ -110,7 +203,7 @@ export default function Home() {
     [all, from, now, daily],
   );
   const climateRows = useMemo(() => current.filter(isValidClimate), [current]);
-  const insights = summary ? buildInsights(summary, settings, periodDef.label) : [];
+  const insights = summary ? buildInsights(summary, eff, periodDef.label) : [];
 
   const handleDelete = async () => {
     if (demo) return alert('No hay datos reales que borrar.');
@@ -207,6 +300,17 @@ export default function Home() {
         <Skeleton />
       ) : (
         <div className="animate-fade-up space-y-5">
+          {alertLevel && annual && (
+            <div className={`flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${annual.exceeded ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200' : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'}`}>
+              <Icon name="bolt" className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                {annual.exceeded
+                  ? `Has superado el límite anual con descuento (${fmt(annual.used, 0)} de ${fmt(annual.limit, 0)} kWh). El resto del periodo se calcula a precio sin descuento.`
+                  : `Llevas el ${fmt(annual.pct, 0)} % de tu límite anual con descuento (${fmt(annual.used, 0)} de ${fmt(annual.limit, 0)} kWh).`}
+              </p>
+            </div>
+          )}
+
           {/* Hero */}
           <section className="relative overflow-hidden rounded-[2rem] bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-600 p-6 text-white shadow-xl shadow-indigo-600/25 sm:p-8">
             <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
@@ -234,7 +338,7 @@ export default function Home() {
                   <p className="pb-1 text-3xl font-semibold text-white/90">{fmtEur(summary.todayCost)}</p>
                 </div>
                 <p className="mt-2 text-sm text-white/75">
-                  Ayer: {fmt(summary.yesterdayKwh, 2)} kWh · {fmtEur(summary.yesterdayKwh * settings.price)}
+                  Ayer: {fmt(summary.yesterdayKwh, 2)} kWh · {fmtEur(summary.yesterdayKwh * price)}
                 </p>
                 <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
                   {[
@@ -295,11 +399,87 @@ export default function Home() {
             </Card>
           </div>
 
+          {/* Tarifa: PVPC y bono social */}
+          {(isPvpc || annual) && (
+            <div className="grid gap-5 lg:grid-cols-3">
+              {isPvpc && (
+                <Card className={annual ? 'lg:col-span-2' : 'lg:col-span-3'}>
+                  <CardHeader
+                    title="Precio de la luz por horas (PVPC)"
+                    subtitle={pvpcError ? `No se pudo cargar: ${pvpcError}` : 'Fuente: Red Eléctrica de España · €/kWh'}
+                    right={
+                      <div className="flex rounded-full bg-slate-100 p-1 text-xs font-medium dark:bg-white/10">
+                        {(['today', 'tomorrow'] as const).map((d) => (
+                          <button
+                            key={d} disabled={d === 'tomorrow' && pvpcTomorrow.length < 20} onClick={() => setPvpcDay(d)}
+                            className={`rounded-full px-3 py-1 transition disabled:opacity-40 ${pvpcDay === d ? 'bg-white shadow dark:bg-slate-700' : ''}`}
+                          >
+                            {d === 'today' ? 'Hoy' : 'Mañana'}
+                          </button>
+                        ))}
+                      </div>
+                    }
+                  />
+                  {shown.length ? (
+                    <>
+                      <div className="h-64"><PvpcChart points={shown} bands={bands} nowTs={now} discount={discountActive ? discountRate : 0} /></div>
+                      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
+                        {(['gold', 'economic', 'forbidden'] as const).map((b) => (
+                          <div key={b} className="rounded-xl bg-slate-50 px-3 py-2 dark:bg-white/5">
+                            <div className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+                              <span className="h-2.5 w-2.5 rounded-full" style={{ background: BAND_COLORS[b] }} />
+                              {BAND_LABELS[b]}
+                            </div>
+                            <div className="mt-0.5 font-semibold text-slate-900 dark:text-white">{bandRanges(shown, bands, b)}</div>
+                          </div>
+                        ))}
+                      </div>
+                      {nowPrice != null && pvpcDay === 'today' && (
+                        <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+                          Ahora: <b className="text-slate-900 dark:text-white">{fmt(nowPrice * (discountActive ? 1 - discountRate : 1), 4)} €/kWh</b>
+                          {' · '}media de hoy {fmt((avgToday ?? 0) * (discountActive ? 1 - discountRate : 1), 4)} €/kWh
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <div className="flex h-64 items-center justify-center text-sm text-slate-400">{pvpcError ? 'Sin datos de precios' : 'Cargando precios…'}</div>
+                  )}
+                </Card>
+              )}
+              {annual && (
+                <Card>
+                  <CardHeader title="Límite anual con descuento" subtitle={`${DISCOUNT_LABELS[settings.discount]} · ${fmt(discountRate * 100, 1)} %`} />
+                  <div className="mt-2 text-3xl font-bold text-slate-900 dark:text-white">
+                    {fmt(annual.used, 0)} <span className="text-base font-medium text-slate-400">/ {fmt(annual.limit, 0)} kWh</span>
+                  </div>
+                  <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-white/10">
+                    <div
+                      className={`h-full rounded-full transition-all ${annual.pct >= 100 ? 'bg-rose-500' : annual.pct >= 80 ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                      style={{ width: `${Math.min(annual.pct, 100)}%` }}
+                    />
+                  </div>
+                  <dl className="mt-4 space-y-2 text-sm">
+                    <Row k="Consumido" v={`${fmt(annual.pct, 1)} %`} />
+                    <Row k="Te quedan" v={`${fmt(annual.remaining, 0)} kWh`} />
+                    <Row k="Previsión anual" v={annual.projectedYear != null ? `${fmt(annual.projectedYear, 0)} kWh` : '—'} />
+                    <Row
+                      k="Límite estimado"
+                      v={annual.exceeded ? 'Superado' : annual.projectedExceedDate ? new Date(annual.projectedExceedDate).toLocaleDateString('es-ES') : 'No lo alcanzarás'}
+                    />
+                  </dl>
+                  <p className="mt-3 text-xs text-slate-400">
+                    Desde {new Date(periodStartMs).toLocaleDateString('es-ES')}. Alertas {settings.alerts ? 'activadas' : 'desactivadas'}.
+                  </p>
+                </Card>
+              )}
+            </div>
+          )}
+
           {/* Consumo + perfil horario */}
           <div className="grid gap-5 lg:grid-cols-2">
             <Card>
               <CardHeader title={daily ? 'Consumo por día' : 'Consumo por hora'} subtitle="Energía consumida (kWh) y su coste" />
-              <div className="h-72"><ConsumptionBars buckets={buckets} daily={daily} price={settings.price} /></div>
+              <div className="h-72"><ConsumptionBars buckets={buckets} daily={daily} price={price} /></div>
             </Card>
             <Card>
               <CardHeader
@@ -353,7 +533,7 @@ export default function Home() {
       )}
 
       <footer className="mt-10 text-center text-xs text-slate-400">
-        Voltio · Datos de tu ESP32 con sensor SCT-013 · Tarifa {fmt(settings.price, 3)} €/kWh · Tensión asumida 230 V
+        Voltio · Datos de tu ESP32 con sensor SCT-013 · Tarifa {fmt(price, 3)} €/kWh{discountActive ? ` (−${fmt(discountRate * 100, 1)} % ${DISCOUNT_LABELS[settings.discount].toLowerCase()})` : ''} · Tensión asumida 230 V
       </footer>
 
       <SettingsModal

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import { DEFAULT_SETTINGS, Settings } from '../lib/energy';
 import { Icon } from './ui';
+import {
+  COMERCIALIZADORAS, DISCOUNT_LABELS, DiscountKey, HOUSEHOLD_LABELS, HouseholdKey,
+} from '../lib/tariffs';
 
 const KEY = 'energy-settings-v1';
 
@@ -43,6 +46,12 @@ function Field({ label, hint, value, onChange, step, suffix }: {
   );
 }
 
+const INPUT = 'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 dark:border-white/10 dark:bg-slate-800 dark:text-white';
+
+function Section({ title }: { title: string }) {
+  return <h3 className="pt-2 text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</h3>;
+}
+
 export default function SettingsModal({
   open, settings, onClose, onSave, onDelete, deleting,
 }: {
@@ -51,10 +60,11 @@ export default function SettingsModal({
   const [draft, setDraft] = useState(settings);
   useEffect(() => setDraft(settings), [settings, open]);
   if (!open) return null;
+  const pvpc = !!COMERCIALIZADORAS.find((c) => c.id === draft.comercializadora)?.pvpc;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-4 backdrop-blur-sm sm:items-center" onClick={onClose}>
-      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Tu tarifa y objetivos</h2>
           <button onClick={onClose} className="rounded-full p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10" aria-label="Cerrar">
@@ -62,7 +72,73 @@ export default function SettingsModal({
           </button>
         </div>
         <div className="space-y-4">
-          <Field label="Precio de la electricidad" hint="Término de energía medio, impuestos incluidos." value={draft.price} step={0.01} suffix="€/kWh" onChange={(price) => setDraft({ ...draft, price })} />
+          <Section title="Comercializadora" />
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Tu comercializadora</span>
+            <select className={`${INPUT} mt-1.5`} value={draft.comercializadora} onChange={(e) => setDraft({ ...draft, comercializadora: e.target.value })}>
+              {COMERCIALIZADORAS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+              {pvpc
+                ? 'Precio PVPC: se descarga cada día de Red Eléctrica (REE) con los precios de cada hora.'
+                : 'Mercado libre: indica tu precio medio, no hay una fuente pública común para descargarlo.'}
+            </span>
+          </label>
+          {!pvpc && (
+            <Field label="Precio de la electricidad" hint="Término de energía, impuestos incluidos." value={draft.price} step={0.01} suffix="€/kWh" onChange={(price) => setDraft({ ...draft, price })} />
+          )}
+          <Section title="Descuento social (bono social)" />
+          <label className="block">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Tipo de consumidor</span>
+            <select className={`${INPUT} mt-1.5`} value={draft.discount} onChange={(e) => setDraft({ ...draft, discount: e.target.value as DiscountKey })}>
+              {(Object.keys(DISCOUNT_LABELS) as DiscountKey[]).map((k) => (
+                <option key={k} value={k}>
+                  {DISCOUNT_LABELS[k]}{k !== 'none' ? ` (${draft.discountRates[k]} %)` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          {draft.discount !== 'none' && (
+            <>
+              <Field
+                label={`Descuento · ${DISCOUNT_LABELS[draft.discount]}`} hint="Si el porcentaje oficial cambia, modifícalo aquí."
+                value={draft.discountRates[draft.discount]} step={0.5} suffix="%"
+                onChange={(v) => setDraft({ ...draft, discountRates: { ...draft.discountRates, [draft.discount]: Math.min(v, 100) } })}
+              />
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Tipo de hogar</span>
+                <select className={`${INPUT} mt-1.5`} value={draft.household} onChange={(e) => setDraft({ ...draft, household: e.target.value as HouseholdKey })}>
+                  {(Object.keys(HOUSEHOLD_LABELS) as HouseholdKey[]).map((k) => (
+                    <option key={k} value={k}>{HOUSEHOLD_LABELS[k]}</option>
+                  ))}
+                </select>
+              </label>
+              <Field
+                label="Límite anual con descuento" hint="Por encima de este consumo se pierde el descuento."
+                value={draft.householdLimits[draft.household]} step={1} suffix="kWh/año"
+                onChange={(v) => setDraft({ ...draft, householdLimits: { ...draft.householdLimits, [draft.household]: v } })}
+              />
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-200">Inicio del periodo anual</span>
+                <input type="date" className={`${INPUT} mt-1.5`} value={draft.periodStart} onChange={(e) => e.target.value && setDraft({ ...draft, periodStart: e.target.value })} />
+                <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">Fecha desde la que se cuenta el consumo para el límite.</span>
+              </label>
+              <label className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 px-3.5 py-3 dark:border-white/10">
+                <span>
+                  <span className="block text-sm font-medium text-slate-700 dark:text-slate-200">Avisarme del límite</span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">Aviso al llegar al 80 % y al superarlo (notificación del navegador y banner).</span>
+                </span>
+                <input
+                  type="checkbox" className="h-5 w-5 accent-indigo-600" checked={draft.alerts}
+                  onChange={(e) => {
+                    if (e.target.checked && typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission();
+                    setDraft({ ...draft, alerts: e.target.checked });
+                  }}
+                />
+              </label>
+            </>
+          )}
+          <Section title="Objetivos" />
           <Field label="Presupuesto mensual" hint="Te avisamos si la previsión lo supera." value={draft.monthlyBudget} step={5} suffix="€/mes" onChange={(monthlyBudget) => setDraft({ ...draft, monthlyBudget })} />
           <Field label="Emisiones de la red" hint="Mix eléctrico peninsular español ≈ 0,15 kg CO₂/kWh." value={draft.co2Factor} step={0.01} suffix="kg/kWh" onChange={(co2Factor) => setDraft({ ...draft, co2Factor })} />
         </div>

@@ -1,4 +1,7 @@
 import { EnergyData } from '../types/energyData';
+import {
+  DEFAULT_DISCOUNT_RATES, DEFAULT_HOUSEHOLD_LIMITS, DiscountKey, HouseholdKey,
+} from './tariffs';
 
 export type PeriodKey = '24h' | '7d' | '30d';
 
@@ -12,12 +15,26 @@ export interface Settings {
   price: number; // €/kWh
   co2Factor: number; // kg CO2 por kWh
   monthlyBudget: number; // € al mes
+  comercializadora: string;
+  discount: DiscountKey;
+  discountRates: Record<Exclude<DiscountKey, 'none'>, number>; // %
+  household: HouseholdKey;
+  householdLimits: Record<HouseholdKey, number>; // kWh/año con descuento
+  periodStart: string; // inicio del periodo anual del descuento (YYYY-MM-DD)
+  alerts: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   price: 0.15,
   co2Factor: 0.15,
   monthlyBudget: 60,
+  comercializadora: 'pvpc',
+  discount: 'none',
+  discountRates: DEFAULT_DISCOUNT_RATES,
+  household: 'h1',
+  householdLimits: DEFAULT_HOUSEHOLD_LIMITS,
+  periodStart: `${new Date().getFullYear()}-01-01`,
+  alerts: true,
 };
 
 const NOMINAL_STEP = 5 * 60_000;

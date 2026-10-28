@@ -3,6 +3,7 @@ import { ApexOptions } from 'apexcharts';
 import { useTheme } from 'next-themes';
 import { Bucket } from '../lib/energy';
 import { EnergyData } from '../types/energyData';
+import { BAND_COLORS, BAND_LABELS, HourBand, PvpcPoint } from '../lib/tariffs';
 
 const Chart = dynamic(() => import('react-apexcharts'), {
   ssr: false,
@@ -176,4 +177,41 @@ function downsample<T>(arr: T[], max: number): T[] {
   for (let i = 0; i < max; i++) out.push(arr[Math.floor(i * step)]);
   out.push(arr[arr.length - 1]);
   return out;
+}
+
+export function PvpcChart({ points, bands, nowTs, discount }: { points: PvpcPoint[]; bands: HourBand[]; nowTs: number; discount: number }) {
+  const base = useBase();
+  const factor = 1 - discount;
+  const options: ApexOptions = merge(base, {
+    chart: { type: 'bar' },
+    plotOptions: { bar: { columnWidth: '78%', borderRadius: 4, distributed: true } },
+    colors: bands.map((b) => BAND_COLORS[b]),
+    legend: { show: false },
+    xaxis: {
+      type: 'category',
+      categories: points.map((p) => `${new Date(p.ts).getHours().toString().padStart(2, '0')}h`),
+      labels: { rotate: 0, hideOverlappingLabels: true },
+      axisTicks: { show: false },
+    },
+    yaxis: { labels: { formatter: (v: number) => `${(v * 100).toFixed(0)} c€` } },
+    tooltip: {
+      y: { formatter: (v: number) => `${v.toFixed(4)} €/kWh` },
+      custom: ({ dataPointIndex }: { dataPointIndex: number }) => {
+        const p = points[dataPointIndex];
+        const band = bands[dataPointIndex];
+        const h = new Date(p.ts).getHours();
+        return `<div style="padding:8px 12px;font-size:12px"><b>${h}:00 – ${(h + 1) % 24}:00</b><br/>${(p.price * factor).toFixed(4)} €/kWh<br/><span style="color:${BAND_COLORS[band]}">● ${BAND_LABELS[band]}</span></div>`;
+      },
+    },
+    annotations: {
+      xaxis: points
+        .filter((p) => nowTs >= p.ts && nowTs < p.ts + 3600_000)
+        .map((p) => ({
+          x: `${new Date(p.ts).getHours().toString().padStart(2, '0')}h`,
+          borderColor: '#6366f1',
+          label: { text: 'Ahora', style: { color: '#fff', background: '#6366f1' }, orientation: 'horizontal' },
+        })),
+    },
+  });
+  return <Chart options={options} series={[{ name: '€/kWh', data: points.map((p) => +(p.price * factor).toFixed(5)) }]} type="bar" height="100%" />;
 }
