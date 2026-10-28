@@ -17,10 +17,14 @@ export default function Home() {
   const handleDeleteData = async () => {
     if (!confirm('¿Estás seguro de que quieres borrar todos los datos?')) return;
 
+    const adminToken = prompt('Token de administrador:');
+    if (!adminToken) return;
+
     setLoading(true);
     try {
       const response = await fetch('/api/data', {
         method: 'DELETE',
+        headers: { 'x-admin-token': adminToken },
       });
 
       if (!response.ok) {

@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# datos locales y volcados
+*.db
+energy_data.sql
+energy_dump.sql
+devices.sql

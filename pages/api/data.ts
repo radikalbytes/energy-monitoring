@@ -12,6 +12,14 @@ if (!supabaseUrl || !supabaseKey) {
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return 'Unknown error';
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   console.log('Método recibido:', req.method);
 
@@ -47,7 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch (error) {
       console.error('Error al guardar datos:', error);
       return res.status(500).json({
-        error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error: `Internal server error: ${errorMessage(error)}`,
       });
     }
   } else if (req.method === 'GET') {
@@ -83,13 +91,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch (error) {
       console.error('Error al obtener datos:', error);
       return res.status(500).json({
-        error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error: `Internal server error: ${errorMessage(error)}`,
       });
     }
   } else if (req.method === 'DELETE') {
+    const adminToken = process.env.ADMIN_DELETE_TOKEN;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!adminToken || !serviceKey || req.headers['x-admin-token'] !== adminToken) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
     try {
       console.log('Solicitud para borrar datos recibida');
-      const { error } = await supabase
+      const adminClient = createClient(supabaseUrl, serviceKey);
+      const { error } = await adminClient
         .from('energy_data')
         .delete()
         .neq('id', 0); // Borrar todos los registros (neq evita errores si la tabla está vacía)
@@ -104,7 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch (error) {
       console.error('Error al borrar datos:', error);
       return res.status(500).json({
-        error: `Internal server error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        error: `Internal server error: ${errorMessage(error)}`,
       });
     }
   } else {
