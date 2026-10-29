@@ -165,7 +165,7 @@ export function ClimateChart({ data, from }: { data: EnergyData[]; from: number 
   });
   const series = [
     { name: 'Temperatura', data: pts.map((d) => [d.timestamp, d.temperature]) },
-    { name: 'Humedad', data: pts.map((d) => [d.timestamp, d.humidity > 0 && d.humidity <= 95 ? d.humidity : null]) },
+    { name: 'Humedad', data: pts.map((d) => ({ x: d.timestamp, y: d.humidity > 0 && d.humidity <= 95 ? d.humidity : null })) },
   ];
   return <Chart options={options} series={series} type="line" height="100%" />;
 }
