@@ -55,10 +55,19 @@ function Section({ title }: { title: string }) {
 export default function SettingsModal({
   open, settings, onClose, onSave, onDelete, deleting,
 }: {
-  open: boolean; settings: Settings; onClose: () => void; onSave: (s: Settings) => void; onDelete: () => void; deleting: boolean;
+  open: boolean; settings: Settings; onClose: () => void; onSave: (s: Settings) => void; onDelete: (user: string, password: string) => Promise<string | null>; deleting: boolean;
 }) {
   const [draft, setDraft] = useState(settings);
-  useEffect(() => setDraft(settings), [settings, open]);
+  const [confirming, setConfirming] = useState(false);
+  const [adminUser, setAdminUser] = useState('');
+  const [adminPass, setAdminPass] = useState('');
+  const [delError, setDelError] = useState<string | null>(null);
+  useEffect(() => {
+    setDraft(settings);
+    setConfirming(false);
+    setAdminPass('');
+    setDelError(null);
+  }, [settings, open]);
   if (!open) return null;
   const pvpc = !!COMERCIALIZADORAS.find((c) => c.id === draft.comercializadora)?.pvpc;
 
@@ -154,10 +163,38 @@ export default function SettingsModal({
           </button>
         </div>
         <div className="mt-6 border-t border-slate-100 pt-4 dark:border-white/10">
-          <button onClick={onDelete} disabled={deleting} className="flex items-center gap-2 text-sm font-medium text-rose-600 hover:text-rose-500 disabled:opacity-50 dark:text-rose-400">
-            <Icon name="trash" className="h-4 w-4" />
-            {deleting ? 'Borrando…' : 'Borrar todos los datos (admin)'}
-          </button>
+          {!confirming ? (
+            <button onClick={() => setConfirming(true)} className="flex items-center gap-2 text-sm font-medium text-rose-600 hover:text-rose-500 dark:text-rose-400">
+              <Icon name="trash" className="h-4 w-4" />
+              Borrar todos los datos (admin)
+            </button>
+          ) : (
+            <form
+              className="space-y-3"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setDelError(null);
+                const err = await onDelete(adminUser, adminPass);
+                if (err) setDelError(err);
+                setAdminPass('');
+              }}
+            >
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Se borrarán <b>todas las lecturas</b> de todos los dispositivos. Tus ajustes no se tocan. No se puede deshacer.
+              </p>
+              <input className={INPUT} placeholder="Usuario" autoComplete="username" value={adminUser} onChange={(e) => setAdminUser(e.target.value)} />
+              <input className={INPUT} type="password" placeholder="Contraseña" autoComplete="current-password" value={adminPass} onChange={(e) => setAdminPass(e.target.value)} />
+              {delError && <p className="text-sm text-rose-600 dark:text-rose-400">{delError}</p>}
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setConfirming(false)} className="flex-1 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium dark:border-white/10 dark:text-slate-200">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={deleting || !adminUser || !adminPass} className="flex-1 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500 disabled:opacity-50">
+                  {deleting ? 'Borrando…' : 'Borrar todo'}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
     </div>

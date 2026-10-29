@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { createHash, timingSafeEqual } from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import { EnergyData } from '../../types/energyData';
 
@@ -11,6 +12,9 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+const digest = (v: string) => createHash('sha256').update(v).digest();
+const safeEqual = (a: string, b: string) => timingSafeEqual(digest(a), digest(b));
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -107,9 +111,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
   } else if (req.method === 'DELETE') {
-    const adminToken = process.env.ADMIN_DELETE_TOKEN;
+    const adminUser = process.env.ADMIN_USER;
+    const adminPassword = process.env.ADMIN_PASSWORD;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!adminToken || !serviceKey || req.headers['x-admin-token'] !== adminToken) {
+    const user = String(req.headers['x-admin-user'] ?? '');
+    const password = String(req.headers['x-admin-password'] ?? '');
+    const valid = !!adminUser && !!adminPassword && safeEqual(user, adminUser) && safeEqual(password, adminPassword);
+    if (!valid || !serviceKey) {
+      // Retardo para frenar la fuerza bruta
+      await new Promise((r) => setTimeout(r, 1500));
       return res.status(401).json({ error: 'Unauthorized' });
     }
 

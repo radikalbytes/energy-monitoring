@@ -205,21 +205,19 @@ export default function Home() {
   const climateRows = useMemo(() => current.filter(isValidClimate), [current]);
   const insights = summary ? buildInsights(summary, eff, periodDef.label) : [];
 
-  const handleDelete = async () => {
-    if (demo) return alert('No hay datos reales que borrar.');
-    if (!confirm('¿Seguro que quieres borrar TODOS los datos? No se puede deshacer.')) return;
-    const token = prompt('Token de administrador:');
-    if (!token) return;
+  const handleDelete = async (user: string, password: string) => {
+    if (demo) return 'No hay datos reales que borrar.';
     setDeleting(true);
     try {
-      const r = await fetch('/api/data', { method: 'DELETE', headers: { 'x-admin-token': token } });
-      if (!r.ok) throw new Error(r.status === 401 ? 'Token incorrecto' : 'Error al borrar');
+      const r = await fetch('/api/data', { method: 'DELETE', headers: { 'x-admin-user': user, 'x-admin-password': password } });
+      if (!r.ok) return r.status === 401 ? 'Usuario o contraseña incorrectos' : 'Error al borrar';
       setShowSettings(false);
       setDevice(null);
       setRows(null);
       load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : 'No se pudo borrar');
+      return null;
+    } catch {
+      return 'No se pudo conectar con el servidor';
     } finally {
       setDeleting(false);
     }
