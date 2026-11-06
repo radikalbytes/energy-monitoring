@@ -203,6 +203,7 @@ export default function Home() {
     [all, from, now, daily],
   );
   const climateRows = useMemo(() => current.filter(isValidClimate), [current]);
+  const lastIpRow = useMemo(() => demo ? undefined : [...all].reverse().find((d) => d.device_ip), [all, demo]);
   const insights = summary ? buildInsights(summary, eff, periodDef.label) : [];
 
   const handleDelete = async (user: string, password: string) => {
@@ -540,6 +541,10 @@ export default function Home() {
 
       <footer className="mt-10 text-center text-xs text-slate-400">
         Voltio · Datos de tu ESP32 con sensor SCT-013 · Tarifa {fmt(price, 3)} €/kWh{discountActive ? ` (−${fmt(discountRate * 100, 1)} % ${DISCOUNT_LABELS[settings.discount].toLowerCase()})` : ''} · Tensión asumida 230 V
+        <p className="mt-2">
+          IP local del dispositivo: {lastIpRow?.device_ip ?? 'No disponible'}
+          {lastIpRow && ` · Último aviso ${timeAgo(lastIpRow.timestamp, now)}`}
+        </p>
       </footer>
 
       <SettingsModal

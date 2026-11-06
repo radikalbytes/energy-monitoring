@@ -1,7 +1,7 @@
 import dynamic from 'next/dynamic';
 import { ApexOptions } from 'apexcharts';
 import { useTheme } from 'next-themes';
-import { Bucket } from '../lib/energy';
+import { Bucket, isValidHumidity } from '../lib/energy';
 import { EnergyData } from '../types/energyData';
 import { BAND_COLORS, BAND_LABELS, HourBand, PvpcPoint } from '../lib/tariffs';
 
@@ -159,13 +159,13 @@ export function ClimateChart({ data, from }: { data: EnergyData[]; from: number 
     },
     yaxis: [
       { seriesName: 'Temperatura', labels: { formatter: (v) => `${v.toFixed(0)}°` } },
-      { seriesName: 'Humedad', opposite: true, labels: { formatter: (v) => `${v.toFixed(0)}%` } },
+      { seriesName: 'Humedad', opposite: true, min: 0, max: 100, tickAmount: 5, forceNiceScale: false, labels: { formatter: (v) => `${v.toFixed(0)}%` } },
     ],
     tooltip: { x: { format: 'dd MMM HH:mm' } },
   });
   const series = [
-    { name: 'Temperatura', data: pts.map((d) => [d.timestamp, d.temperature]) },
-    { name: 'Humedad', data: pts.map((d) => ({ x: d.timestamp, y: d.humidity > 0 && d.humidity <= 95 ? d.humidity : null })) },
+    { name: 'Temperatura', data: pts.map((d) => ({ x: d.timestamp, y: d.temperature })) },
+    { name: 'Humedad', data: pts.map((d) => ({ x: d.timestamp, y: isValidHumidity(d) ? d.humidity : null })) },
   ];
   return <Chart options={options} series={series} type="line" height="100%" />;
 }

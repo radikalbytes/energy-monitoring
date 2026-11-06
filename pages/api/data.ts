@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createHash, timingSafeEqual } from 'crypto';
+import { isIP } from 'net';
 import { createClient } from '@supabase/supabase-js';
 import { EnergyData } from '../../types/energyData';
 
@@ -35,6 +36,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.log('Campos faltantes en:', data);
       return res.status(400).json({ error: 'Missing required fields' });
     }
+    if (data.device_ip != null && (typeof data.device_ip !== 'string' || isIP(data.device_ip) !== 4)) {
+      return res.status(400).json({ error: 'Invalid device IPv4 address' });
+    }
 
     try {
       console.log('Intentando insertar en Supabase:', data);
@@ -47,6 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           temperature: data.temperature,
           humidity: data.humidity,
           timestamp: Date.now(),
+          ...(data.device_ip != null ? { device_ip: data.device_ip } : {}),
         });
 
       if (error) {

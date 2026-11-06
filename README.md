@@ -39,6 +39,18 @@ Por defecto el generador envía las muestras a `http://localhost:3000/api/data`.
 
 Si AEMET no responde y no hay valores meteorológicos anteriores, el generador omite esa muestra para respetar los campos obligatorios de la tabla `energy_data`.
 
+## IP local del ESP32
+
+Para una base de datos existente, ejecuta en el editor SQL de Supabase la migración
+[`supabase/add_device_ip.sql`](supabase/add_device_ip.sql) antes de desplegar la API
+y cargar el firmware actualizado. Las lecturas antiguas y los dispositivos que aún
+no envían `device_ip` siguen siendo compatibles.
+
+El pie de página muestra la última IP local recibida del dispositivo seleccionado
+dentro del periodo consultado y cuándo se recibió; puede haber cambiado desde entonces.
+Para abrirla es necesario estar en la misma red o tener acceso a ella. La IP se
+almacena junto a las lecturas y es visible para quien pueda consultar la API.
+
 En Vercel, añade `AEMET_API_KEY` en **Project Settings > Environment Variables** y vuelve a desplegar el proyecto. Esa variable estará disponible para las funciones de Vercel; si `generador.py` se ejecuta en tu ordenador o en otro servidor, también debes configurarla allí.
 
 ## Learn More

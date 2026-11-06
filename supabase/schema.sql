@@ -5,8 +5,11 @@ create table if not exists public.energy_data (
   power double precision not null,
   temperature double precision not null,
   humidity double precision not null,
-  "timestamp" bigint not null
+  "timestamp" bigint not null,
+  device_ip text
 );
+
+alter table public.energy_data add column if not exists device_ip text;
 
 create index if not exists energy_data_uuid_ts_idx on public.energy_data (uuid, "timestamp");
 

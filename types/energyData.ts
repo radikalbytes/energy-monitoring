@@ -6,4 +6,5 @@ export interface EnergyData {
     temperature: number;
     humidity: number;
     timestamp: number;
+    device_ip?: string | null;
   }
