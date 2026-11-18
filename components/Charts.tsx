@@ -69,10 +69,29 @@ export function PowerGauge({ value, max }: { value: number; max: number }) {
   return <Chart options={options} series={[pct]} type="radialBar" height="100%" />;
 }
 
-export function PowerArea({ data, from }: { data: EnergyData[]; from: number }) {
+// Convierte los precios horarios en una serie escalonada con forma de barras (con un pequeño hueco entre horas).
+// Se dibuja como área "stepline" para no alterar el eje X de la gráfica de potencia (las barras de ApexCharts
+// en un eje de fechas ajustan su anchura al menor intervalo entre puntos y se pintarían encima del área).
+function pvpcBars(pvpc: PvpcPoint[], from: number, to: number, factor: number): number[][] {
+  const H = 3600_000;
+  const gap = H * 0.04;
+  const out: number[][] = [];
+  pvpc
+    .filter((p) => p.ts + H > from && p.ts <= to)
+    .sort((a, b) => a.ts - b.ts)
+    .forEach((p) => {
+      const price = +(p.price * factor).toFixed(5);
+      out.push([Math.max(p.ts + gap, from), price], [p.ts + H - gap, 0]);
+    });
+  return out;
+}
+
+export function PowerArea({ data, from, pvpc = [], discount = 0 }: { data: EnergyData[]; from: number; pvpc?: PvpcPoint[]; discount?: number }) {
   const base = useBase();
   const points = downsample(data, 400).map((d) => [d.timestamp, Math.round(d.power)]);
   const span = Date.now() - from;
+  const bars = pvpcBars(pvpc, from, Date.now(), 1 - discount);
+  if (bars.length) return <PowerWithPvpc base={base} points={points} bars={bars} from={from} span={span} />;
   const options: ApexOptions = merge(base, {
     chart: { type: 'area', zoom: { enabled: false } },
     stroke: { curve: 'smooth', width: 2.5 },
@@ -89,6 +108,59 @@ export function PowerArea({ data, from }: { data: EnergyData[]; from: number }) 
     tooltip: { x: { format: 'dd MMM HH:mm' }, y: { formatter: (v) => `${v} W` } },
   });
   return <Chart options={options} series={[{ name: 'Potencia', data: points }]} type="area" height="100%" />;
+}
+
+const PVPC_COLOR = '#f59e0b';
+
+// Potencia con el precio PVPC por horas detrás (50 % de transparencia). Son dos gráficas superpuestas con
+// exactamente las mismas series y ejes para que coincidan píxel a píxel: la de atrás solo pinta las barras
+// de precio y la de delante solo la potencia (más los ejes y el tooltip).
+function PowerWithPvpc({ base, points, bars, from, span }: { base: ApexOptions; points: number[][]; bars: number[][]; from: number; span: number }) {
+  const series = [
+    { name: 'Potencia', type: 'area', data: points },
+    { name: 'PVPC', type: 'area', data: bars },
+  ];
+  const common = (back: boolean): ApexOptions =>
+    merge(base, {
+      chart: { type: 'area', zoom: { enabled: false }, ...(back ? { foreColor: 'transparent' } : {}) },
+      ...(back ? { grid: { borderColor: 'transparent' } } : {}),
+      stroke: { curve: ['smooth', 'stepline'], width: back ? [0, 0] : [2.5, 0] },
+      colors: [COLORS.power, PVPC_COLOR],
+      fill: back
+        ? { type: 'solid', opacity: [0, 0.5] }
+        : {
+            type: ['gradient', 'solid'],
+            opacity: [1, 0],
+            gradient: { shadeIntensity: 1, opacityFrom: 0.45, opacityTo: 0.02, stops: [0, 95] },
+          },
+      legend: { show: false },
+      markers: { size: 0 },
+      xaxis: {
+        type: 'datetime',
+        min: from,
+        labels: { datetimeUTC: false, format: span <= 36 * 3600_000 ? 'HH:mm' : 'dd MMM' },
+        axisBorder: { show: false },
+        axisTicks: { show: false },
+      },
+      yaxis: [
+        { seriesName: 'Potencia', min: 0, labels: { formatter: (v: number) => `${Math.round(v)} W` } },
+        { seriesName: 'PVPC', opposite: true, min: 0, labels: { formatter: (v: number) => `${(v * 100).toFixed(0)} c€` } },
+      ],
+      tooltip: back
+        ? { enabled: false }
+        : { enabledOnSeries: [0], x: { format: 'dd MMM HH:mm' }, y: { formatter: (v: number) => `${v} W` } },
+      states: back ? undefined : { hover: { filter: { type: 'none' } }, active: { filter: { type: 'none' } } },
+    });
+  return (
+    <div className="relative h-full w-full">
+      <div className="pointer-events-none absolute inset-0">
+        <Chart options={common(true)} series={series} type="area" height="100%" />
+      </div>
+      <div className="absolute inset-0">
+        <Chart options={common(false)} series={series} type="area" height="100%" />
+      </div>
+    </div>
+  );
 }
 
 export function ConsumptionBars({ buckets, daily, price }: { buckets: Bucket[]; daily: boolean; price: number }) {

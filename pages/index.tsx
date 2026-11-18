@@ -392,7 +392,7 @@ export default function Home() {
           <div className="grid gap-5 lg:grid-cols-3">
             <Card className="lg:col-span-2">
               <CardHeader title="Potencia en tiempo real" subtitle={`Evolución de la potencia · ${periodDef.label}`} />
-              <div className="h-72"><PowerArea data={current} from={from} /></div>
+              <div className="h-72"><PowerArea data={current} from={from} pvpc={isPvpc ? pvpc : []} discount={discountActive ? discountRate : 0} /></div>
             </Card>
             <Card>
               <CardHeader title="Presupuesto mensual" subtitle="Previsión según tu ritmo actual" />
