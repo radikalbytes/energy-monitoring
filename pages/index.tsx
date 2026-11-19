@@ -3,14 +3,14 @@ import { useRouter } from 'next/router';
 import { useTheme } from 'next-themes';
 import { EnergyData } from '../types/energyData';
 import {
-  PERIODS, PeriodKey, Summary, bucketize, kwhBetween, buildInsights, comfort, fmt, fmtEur, isValidClimate, isValidHumidity, humiditySensorSuspect, summarize,
+  CustomRange, MAX_CUSTOM_DAYS, PERIODS, PeriodKey, Summary, bucketize, customBounds, customLabel, isoDay, kwhBetween, buildInsights, comfort, fmt, fmtEur, isValidClimate, isValidHumidity, humiditySensorSuspect, summarize,
 } from '../lib/energy';
 import { generateDemo } from '../lib/demo';
 import {
   BAND_COLORS, BAND_LABELS, COMERCIALIZADORAS, DISCOUNT_LABELS, HourBand, PvpcPoint, annualStatus, classifyDay,
 } from '../lib/tariffs';
 import { Card, CardHeader, Delta, Icon, StatCard } from '../components/ui';
-import { ClimateChart, ConsumptionBars, HourlyBars, PowerArea, PowerGauge, PvpcChart } from '../components/Charts';
+import { ClimateChart, ConsumptionBars, HourlyBars, OutageBand, PowerArea, PowerGauge, PvpcChart } from '../components/Charts';
 import { OutageLog } from '../components/OutageLog';
 import SettingsModal, { useSettings } from '../components/SettingsModal';
 
@@ -51,7 +51,9 @@ export default function Home() {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [settings, saveSettings] = useSettings();
-  const [period, setPeriod] = useState<PeriodKey>('24h');
+  const [period, setPeriod] = useState<PeriodKey | 'custom'>('24h');
+  // Intervalo personalizado: por defecto ayer y hoy.
+  const [custom, setCustom] = useState<CustomRange>(() => ({ start: isoDay(Date.now() - 86400_000), end: isoDay(Date.now()) }));
   const [devices, setDevices] = useState<string[]>([]);
   const [device, setDevice] = useState<string | null>(null);
   const [rows, setRows] = useState<EnergyData[] | null>(null);
@@ -61,7 +63,10 @@ export default function Home() {
   const [deleting, setDeleting] = useState(false);
   const [now, setNow] = useState(() => Date.now());
 
-  const periodDef = PERIODS.find((p) => p.key === period)!;
+  const isCustom = period === 'custom';
+  const periodDef = PERIODS.find((p) => p.key === period);
+  const periodMs = periodDef?.ms ?? 0;
+  const periodLabel = isCustom ? customLabel(custom) : periodDef!.label;
   const forceDemo = router.isReady && router.query.demo === '1';
 
   useEffect(() => setMounted(true), []);
@@ -95,20 +100,39 @@ export default function Home() {
         uuid = list[0];
         setDevice(uuid);
       }
-      const r = await fetch(`/api/data?uuid=${encodeURIComponent(uuid)}&timeRange=${periodDef.ms * 2}`);
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || 'Error de servidor');
+      const base = `/api/data?uuid=${encodeURIComponent(uuid)}`;
+      let energyData: EnergyData[];
+      let j: { energyData?: EnergyData[]; devices?: string[]; error?: string };
+      if (isCustom) {
+        // El intervalo (y el anterior de igual duración para comparar) más las últimas 48 h para lo que
+        // muestra el estado actual (ahora mismo, hoy, ayer).
+        const b = customBounds(custom);
+        const len = b.to - b.from;
+        const [r1, r2] = await Promise.all([fetch(`${base}&from=${b.from - len}&to=${b.to}`), fetch(`${base}&timeRange=${2 * 86400_000}`)]);
+        const [j1, j2] = await Promise.all([r1.json(), r2.json()]);
+        if (!r1.ok) throw new Error(j1.error || 'Error de servidor');
+        if (!r2.ok) throw new Error(j2.error || 'Error de servidor');
+        const byTs = new Map<number, EnergyData>();
+        for (const d of [...(j1.energyData ?? []), ...(j2.energyData ?? [])]) byTs.set(d.timestamp, d);
+        energyData = [...byTs.values()].sort((a, b2) => a.timestamp - b2.timestamp);
+        j = j1;
+      } else {
+        const r = await fetch(`${base}&timeRange=${periodMs * 2}`);
+        j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Error de servidor');
+        energyData = j.energyData || [];
+      }
       setDemo(false);
       setApiError(null);
-      setDevices((prev) => (j.devices?.length ? j.devices : prev));
-      setRows(j.energyData || []);
+      setDevices((prev) => (j.devices?.length ? j.devices! : prev));
+      setRows(energyData);
       setNow(Date.now());
     } catch (e) {
       setApiError(e instanceof Error ? e.message : 'No se pudieron cargar los datos');
       setDemo(true);
       setRows((prev) => prev ?? generateDemo(62));
     }
-  }, [router.isReady, forceDemo, device, periodDef.ms]);
+  }, [router.isReady, forceDemo, device, periodMs, isCustom, custom]);
 
   useEffect(() => {
     load();
@@ -117,7 +141,8 @@ export default function Home() {
   }, [load]);
 
   const all = useMemo(() => (rows ?? []).filter((d) => !device || demo || d.uuid === device), [rows, device, demo]);
-  const from = now - periodDef.ms;
+  const { from, to } = isCustom ? customBounds(custom, now) : { from: now - periodMs, to: now };
+  const rangeTo = isCustom ? to : undefined; // en los periodos "hasta ahora" el eje X no se fija por la derecha
 
   // Tarifa: precio PVPC por horas (REE) o precio fijo, más el descuento social si procede.
   const isPvpc = !!COMERCIALIZADORAS.find((c) => c.id === settings.comercializadora)?.pvpc;
@@ -143,6 +168,42 @@ export default function Home() {
     const id = setInterval(run, 15 * 60_000);
     return () => { alive = false; clearInterval(id); };
   }, [isPvpc]);
+
+  // PVPC del periodo mostrado en la gráfica de potencia (incluidos días pasados).
+  const [pvpcChart, setPvpcChart] = useState<PvpcPoint[]>([]);
+  const fromHour = Math.floor(from / 3600_000);
+  const toHour = Math.ceil(to / 3600_000);
+  useEffect(() => {
+    if (!isPvpc) return;
+    let alive = true;
+    const run = async () => {
+      try {
+        const r = await fetch(`/api/pvpc?from=${fromHour * 3600_000}&to=${toHour * 3600_000}`);
+        const j = await r.json();
+        if (r.ok && alive) setPvpcChart(j.points);
+      } catch { /* se mantiene el último valor */ }
+    };
+    run();
+    const id = setInterval(run, 15 * 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, [isPvpc, fromHour, toHour]);
+
+  // Cortes de luz del periodo, para marcarlos en rojo en la gráfica de potencia.
+  const [outageBands, setOutageBands] = useState<OutageBand[]>([]);
+  const fromMin = Math.floor(from / 60_000);
+  const toMin = Math.ceil(to / 60_000);
+  useEffect(() => {
+    if (!device || demo) { setOutageBands([]); return; }
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/outages?uuid=${encodeURIComponent(device)}&from=${fromMin * 60_000}&to=${toMin * 60_000}`);
+        const j = await r.json();
+        if (r.ok && alive) setOutageBands(j.outages);
+      } catch { /* se mantiene el último valor */ }
+    }, 300);
+    return () => { alive = false; clearTimeout(t); };
+  }, [device, demo, fromMin, toMin]);
 
   const periodStartMs = useMemo(() => new Date(`${settings.periodStart}T00:00:00`).getTime(), [settings.periodStart]);
   const hasDiscount = settings.discount !== 'none';
@@ -194,18 +255,18 @@ export default function Home() {
     }
   }, [alertLevel, annual, demo, settings.periodStart, settings.household]);
   const summary: Summary | null = useMemo(
-    () => (rows ? summarize(all, periodDef.ms, eff, now) : null),
-    [rows, all, periodDef.ms, eff, now],
+    () => (rows ? summarize(all, from, to, eff, now) : null),
+    [rows, all, from, to, eff, now],
   );
-  const current = useMemo(() => all.filter((d) => d.timestamp >= from), [all, from]);
-  const daily = period !== '24h';
+  const current = useMemo(() => all.filter((d) => d.timestamp >= from && (!isCustom || d.timestamp < to)), [all, from, to, isCustom]);
+  const daily = isCustom ? to - from > 2 * 86400_000 : period !== '24h';
   const buckets = useMemo(
-    () => bucketize(all, from, now, daily ? 86400_000 : 3600_000, daily),
-    [all, from, now, daily],
+    () => bucketize(all, from, to, daily ? 86400_000 : 3600_000, daily),
+    [all, from, to, daily],
   );
   const climateRows = useMemo(() => current.filter(isValidClimate), [current]);
   const lastIpRow = useMemo(() => demo ? undefined : [...all].reverse().find((d) => d.device_ip), [all, demo]);
-  const insights = summary ? buildInsights(summary, eff, periodDef.label) : [];
+  const insights = summary ? buildInsights(summary, eff, periodLabel) : [];
 
   const handleDelete = async (user: string, password: string) => {
     if (demo) return 'No hay datos reales que borrar.';
@@ -259,7 +320,7 @@ export default function Home() {
               <button
                 key={p.key}
                 onClick={() => setPeriod(p.key)}
-                className={`rounded-full px-3.5 py-1.5 text-sm font-medium transition ${
+                className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition sm:px-3.5 ${
                   period === p.key
                     ? 'bg-indigo-600 text-white shadow'
                     : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
@@ -268,6 +329,17 @@ export default function Home() {
                 {p.label}
               </button>
             ))}
+            <button
+              onClick={() => setPeriod('custom')}
+              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition sm:px-3.5 ${
+                isCustom
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'
+              }`}
+            >
+              <span className="sm:hidden">Fechas</span>
+              <span className="hidden sm:inline">Personalizado</span>
+            </button>
           </div>
           <button
             onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
@@ -285,6 +357,8 @@ export default function Home() {
           </button>
         </div>
       </header>
+
+      {isCustom && <RangePicker value={custom} onChange={setCustom} />}
 
       {(demo || apiError) && (
         <div className={`mb-6 flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${apiError ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200' : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'}`}>
@@ -368,7 +442,7 @@ export default function Home() {
           {/* KPIs */}
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
-              icon="bolt" label={`Consumo · ${periodDef.label}`} value={fmt(summary.kwh, 1)} unit="kWh"
+              icon="bolt" label={`Consumo · ${periodLabel}`} value={fmt(summary.kwh, 1)} unit="kWh"
               tint="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
               sub={<span className="flex items-center gap-2"><Delta pct={summary.deltaKwhPct} /> vs periodo anterior</span>}
             />
@@ -392,8 +466,8 @@ export default function Home() {
           {/* Potencia + presupuesto */}
           <div className="grid gap-5 lg:grid-cols-3">
             <Card className="lg:col-span-2">
-              <CardHeader title="Potencia en tiempo real" subtitle={`Evolución de la potencia · ${periodDef.label}`} />
-              <div className="h-72"><PowerArea data={current} from={from} pvpc={isPvpc ? pvpc : []} discount={discountActive ? discountRate : 0} /></div>
+              <CardHeader title="Potencia en tiempo real" subtitle={`Evolución de la potencia · ${periodLabel}`} />
+              <div className="h-72"><PowerArea data={current} from={from} to={rangeTo} pvpc={isPvpc ? pvpcChart : []} discount={discountActive ? discountRate : 0} outages={outageBands} /></div>
             </Card>
             <Card>
               <CardHeader title="Presupuesto mensual" subtitle="Previsión según tu ritmo actual" />
@@ -517,7 +591,7 @@ export default function Home() {
                 <Mini icon="thermo" label="Media periodo" value={summary.avgTemp !== null ? `${fmt(summary.avgTemp, 1)} °C` : '—'} tint="text-orange-500 bg-orange-500/10" />
                 <Mini icon="drop" label="Media periodo" value={summary.avgHum !== null ? `${fmt(summary.avgHum, 0)} %` : '—'} tint="text-sky-500 bg-sky-500/10" />
               </div>
-              <div className="h-60"><ClimateChart data={climateRows} from={from} /></div>
+              <div className="h-60"><ClimateChart data={climateRows} from={from} to={rangeTo} /></div>
             </Card>
             <Card>
               <CardHeader title="Consejos para ti" subtitle="Generados con tus datos" />
@@ -614,6 +688,57 @@ function Skeleton() {
         {[0, 1, 2, 3].map((i) => <div key={i} className="h-36 animate-pulse rounded-3xl bg-slate-200/70 dark:bg-white/5" />)}
       </div>
       <div className="h-80 animate-pulse rounded-3xl bg-slate-200/70 dark:bg-white/5" />
+    </div>
+  );
+}
+
+// Selector de intervalo personalizado: días completos, ambos incluidos, hasta MAX_CUSTOM_DAYS días.
+function RangePicker({ value, onChange }: { value: CustomRange; onChange: (r: CustomRange) => void }) {
+  const [draft, setDraft] = useState(value);
+  const today = isoDay(Date.now());
+  const dayMs = (s: string) => new Date(`${s}T00:00:00`).getTime();
+  const days = draft.start && draft.end ? Math.round((dayMs(draft.end) - dayMs(draft.start)) / 86400_000) + 1 : 0;
+  const error = !draft.start || !draft.end
+    ? 'Elige las dos fechas.'
+    : draft.end > today
+      ? 'La fecha final no puede ser posterior a hoy.'
+      : days < 1
+        ? 'La fecha inicial debe ser anterior o igual a la final.'
+        : days > MAX_CUSTOM_DAYS
+          ? `El intervalo máximo es de ${MAX_CUSTOM_DAYS} días.`
+          : null;
+
+  const update = (r: CustomRange) => {
+    setDraft(r);
+    const n = Math.round((dayMs(r.end) - dayMs(r.start)) / 86400_000) + 1;
+    if (r.start && r.end && r.end <= today && n >= 1 && n <= MAX_CUSTOM_DAYS) onChange(r);
+  };
+  const lastDays = (n: number) => update({ start: isoDay(Date.now() - (n - 1) * 86400_000), end: today });
+  const yesterday = isoDay(Date.now() - 86400_000);
+
+  const input = 'rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm shadow-sm dark:border-white/10 dark:bg-slate-900 dark:[color-scheme:dark]';
+  const chip = (active: boolean) =>
+    `rounded-full px-3 py-1 text-xs font-medium transition ${active ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600 hover:text-slate-900 dark:bg-white/5 dark:text-slate-300 dark:hover:text-white'}`;
+
+  return (
+    <div className="mb-6 flex flex-wrap items-end gap-x-4 gap-y-3 rounded-2xl border border-slate-200/70 bg-white px-4 py-3 shadow-card dark:border-white/10 dark:bg-slate-900/70 dark:shadow-none">
+      <label className="flex flex-col gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+        Desde
+        <input type="date" className={input} value={draft.start} max={draft.end || today} onChange={(e) => update({ ...draft, start: e.target.value })} />
+      </label>
+      <label className="flex flex-col gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+        Hasta
+        <input type="date" className={input} value={draft.end} min={draft.start} max={today} onChange={(e) => update({ ...draft, end: e.target.value })} />
+      </label>
+      <div className="flex flex-wrap gap-2 pb-1">
+        <button className={chip(draft.start === today && draft.end === today)} onClick={() => update({ start: today, end: today })}>Hoy</button>
+        <button className={chip(draft.start === yesterday && draft.end === yesterday)} onClick={() => update({ start: yesterday, end: yesterday })}>Ayer</button>
+        <button className={chip(draft.start === yesterday && draft.end === today)} onClick={() => lastDays(2)}>Últimos 2 días</button>
+        <button className={chip(days === 3 && draft.end === today)} onClick={() => lastDays(3)}>Últimos 3 días</button>
+      </div>
+      <p className={`w-full text-xs sm:w-auto sm:pb-1.5 ${error ? 'text-rose-600 dark:text-rose-400' : 'text-slate-500 dark:text-slate-400'}`}>
+        {error ?? `${days} ${days === 1 ? 'día' : 'días'} · ${customLabel(draft)}`}
+      </p>
     </div>
   );
 }

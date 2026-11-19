@@ -25,6 +25,50 @@ function errorMessage(error: unknown): string {
   return 'Unknown error';
 }
 
+// Máximo de lecturas devueltas (~150 bytes cada una) para no superar el límite de respuesta de Vercel.
+const MAX_RETURNED_ROWS = 22000;
+
+const stepFor = (rows: EnergyData[]) => {
+  if (rows.length < 2) return 60_000;
+  const span = rows[rows.length - 1].timestamp - rows[0].timestamp;
+  return Math.max(60_000, Math.ceil(span / MAX_RETURNED_ROWS / 60_000) * 60_000);
+};
+
+// Promedia las lecturas en bloques de `stepFor` minutos. Cada bloque conserva la hora de su primera
+// lectura, así que los huecos sin datos siguen apareciendo como huecos. La temperatura y la humedad
+// solo promedian lecturas válidas (0 = sin dato).
+function downsampleRows(rows: EnergyData[], max: number): EnergyData[] {
+  if (rows.length <= max) return rows;
+  const step = stepFor(rows);
+  const out: EnergyData[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    const key = Math.floor(rows[i].timestamp / step);
+    let j = i;
+    let p = 0, a = 0, t = 0, h = 0, nc = 0, nh = 0;
+    while (j < rows.length && Math.floor(rows[j].timestamp / step) === key) {
+      const r = rows[j];
+      p += r.power;
+      a += r.irms;
+      if (!(r.temperature === 0 && r.humidity === 0)) { t += r.temperature; nc++; }
+      if (r.humidity > 0) { h += r.humidity; nh++; }
+      j++;
+    }
+    const n = j - i;
+    const last = rows[j - 1];
+    out.push({
+      ...last,
+      timestamp: rows[i].timestamp,
+      power: Math.round((p / n) * 100) / 100,
+      irms: Math.round((a / n) * 100) / 100,
+      temperature: nc ? Math.round((t / nc) * 10) / 10 : 0,
+      humidity: nh ? Math.round((h / nh) * 10) / 10 : 0,
+    });
+    i = j;
+  }
+  return out;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   console.log('Método recibido:', req.method);
 
@@ -69,14 +113,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } else if (req.method === 'GET') {
     const { uuid, timeRange } = req.query;
+    // Intervalo absoluto opcional (ms desde epoch); tiene prioridad sobre timeRange.
+    const fromMs = Number(req.query.from);
+    const toMs = Number(req.query.to);
+    const hasFrom = Number.isFinite(fromMs) && fromMs > 0;
+    const hasTo = Number.isFinite(toMs) && toMs > 0;
 
     try {
       const PAGE = 1000;
-      const MAX_ROWS = 60000;
+      const MAX_ROWS = 100000; // ~69 días a una lectura por minuto
       const buildQuery = () => {
         let q = supabase.from('energy_data').select('*', { count: 'exact' });
         if (typeof uuid === 'string') q = q.eq('uuid', uuid);
-        if (typeof timeRange === 'string') {
+        if (hasFrom) q = q.gte('timestamp', fromMs);
+        if (hasTo) q = q.lte('timestamp', toMs);
+        if (!hasFrom && typeof timeRange === 'string') {
           const timeRangeMs = Number(timeRange);
           if (Number.isFinite(timeRangeMs) && timeRangeMs > 0) {
             q = q.gte('timestamp', Date.now() - timeRangeMs);
@@ -88,15 +139,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const first = await buildQuery().range(0, PAGE - 1);
       if (first.error) throw first.error;
       const total = Math.min(first.count ?? first.data.length, MAX_ROWS);
-      const energyData = [...first.data];
+      const raw: EnergyData[] = [...first.data];
 
       const pages: number[] = [];
       for (let from = PAGE; from < total; from += PAGE) pages.push(from);
-      const rest = await Promise.all(pages.map((from) => buildQuery().range(from, from + PAGE - 1)));
-      for (const page of rest) {
-        if (page.error) throw page.error;
-        energyData.push(...page.data);
+      for (let i = 0; i < pages.length; i += 10) {
+        const batch = await Promise.all(pages.slice(i, i + 10).map((from) => buildQuery().range(from, from + PAGE - 1)));
+        for (const page of batch) {
+          if (page.error) throw page.error;
+          raw.push(...page.data);
+        }
       }
+
+      // Vercel limita la respuesta a 4,5 MB: los periodos largos se promedian en bloques de varios minutos.
+      const energyData = downsampleRows(raw, MAX_RETURNED_ROWS);
 
       const { data: deviceRows, error: devicesError } = await supabase
         .from('energy_data')
@@ -108,7 +164,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const devices = [...new Set(deviceRows.map(({ uuid }) => uuid))];
 
       res.setHeader('Cache-Control', 'no-store');
-      return res.status(200).json({ energyData, devices });
+      return res.status(200).json({ energyData, devices, stepMs: energyData === raw ? null : stepFor(raw) });
     } catch (error) {
       console.error('Error al obtener datos:', error);
       return res.status(500).json({

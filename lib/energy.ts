@@ -145,11 +145,39 @@ export interface Summary {
   avgHum: number | null;
 }
 
-export function summarize(all: EnergyData[], periodMs: number, settings: Settings, now = Date.now()): Summary {
-  const from = now - periodMs;
+// Intervalo de fechas elegido por el usuario (días completos, ambos incluidos), en formato YYYY-MM-DD.
+export interface CustomRange {
+  start: string;
+  end: string;
+}
+
+export const MAX_CUSTOM_DAYS = 31;
+
+export const isoDay = (ts: number) => {
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// Convierte el intervalo personalizado en [from, to) en ms; `to` nunca pasa de ahora.
+export function customBounds(r: CustomRange, now = Date.now()): { from: number; to: number } {
+  const from = new Date(`${r.start}T00:00:00`).getTime();
+  const endDay = new Date(`${r.end}T00:00:00`);
+  endDay.setDate(endDay.getDate() + 1);
+  return { from, to: Math.min(endDay.getTime(), now) };
+}
+
+export function customLabel(r: CustomRange): string {
+  const f = (s: string) => new Date(`${s}T00:00:00`).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  return r.start === r.end ? f(r.start) : `${f(r.start)} – ${f(r.end)}`;
+}
+
+// `from`/`to`: periodo analizado; se compara con el periodo anterior de la misma duración.
+export function summarize(all: EnergyData[], from: number, to: number, settings: Settings, now = Date.now()): Summary {
+  const periodMs = to - from;
   const prevFrom = from - periodMs;
-  const cur = all.filter((d) => d.timestamp >= from);
-  const kwh = kwhBetween(all, from, now + 1);
+  const live = to >= now; // periodo hasta ahora: no cortar por arriba (posible desfase de reloj)
+  const cur = all.filter((d) => d.timestamp >= from && (live || d.timestamp < to));
+  const kwh = kwhBetween(all, from, live ? Infinity : to);
   const prevKwh = kwhBetween(all, prevFrom, from);
   const powers = cur.map((d) => d.power);
   const peak = cur.reduce<EnergyData | null>((m, d) => (!m || d.power > m.power ? d : m), null);

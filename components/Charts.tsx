@@ -86,12 +86,48 @@ function pvpcBars(pvpc: PvpcPoint[], from: number, to: number, factor: number): 
   return out;
 }
 
-export function PowerArea({ data, from, pvpc = [], discount = 0 }: { data: EnergyData[]; from: number; pvpc?: PvpcPoint[]; discount?: number }) {
+export interface OutageBand {
+  start: number;
+  end: number | null; // null = sigue sin luz
+}
+
+const OUTAGE_COLOR = '#ef4444';
+
+// Franjas rojas en el eje X para los cortes de luz dentro del periodo [from, to].
+function outageAnnotations(outages: OutageBand[], from: number, to: number): ApexOptions['annotations'] {
+  return {
+    xaxis: outages
+      .filter((o) => o.start < to && (o.end ?? to) > from)
+      .map((o) => ({
+        x: Math.max(o.start, from),
+        x2: Math.min(o.end ?? to, to),
+        fillColor: OUTAGE_COLOR,
+        opacity: 0.18,
+        borderColor: OUTAGE_COLOR,
+        strokeDashArray: 0,
+        label: {
+          text: o.end == null ? 'Sin luz' : 'Corte',
+          orientation: 'horizontal',
+          borderColor: OUTAGE_COLOR,
+          style: { color: '#fff', background: OUTAGE_COLOR, fontSize: '10px' },
+        },
+      })),
+  };
+}
+
+// Formato del eje X según la duración del periodo.
+const axisFormat = (span: number) => (span <= 36 * 3600_000 ? 'HH:mm' : span <= 4 * 86400_000 ? 'dd MMM HH:mm' : 'dd MMM');
+
+export function PowerArea({ data, from, to, pvpc = [], discount = 0, outages = [] }: {
+  data: EnergyData[]; from: number; to?: number; pvpc?: PvpcPoint[]; discount?: number; outages?: OutageBand[];
+}) {
   const base = useBase();
   const points = downsample(data, 400).map((d) => [d.timestamp, Math.round(d.power)]);
-  const span = Date.now() - from;
-  const bars = pvpcBars(pvpc, from, Date.now(), 1 - discount);
-  if (bars.length) return <PowerWithPvpc base={base} points={points} bars={bars} from={from} span={span} />;
+  const end = to ?? Date.now();
+  const span = end - from;
+  const annotations = outageAnnotations(outages, from, end);
+  const bars = pvpcBars(pvpc, from, end, 1 - discount);
+  if (bars.length) return <PowerWithPvpc base={base} points={points} bars={bars} from={from} to={to} span={span} annotations={annotations} />;
   const options: ApexOptions = merge(base, {
     chart: { type: 'area', zoom: { enabled: false } },
     stroke: { curve: 'smooth', width: 2.5 },
@@ -100,11 +136,13 @@ export function PowerArea({ data, from, pvpc = [], discount = 0 }: { data: Energ
     xaxis: {
       type: 'datetime',
       min: from,
-      labels: { datetimeUTC: false, format: span <= 36 * 3600_000 ? 'HH:mm' : 'dd MMM' },
+      max: to,
+      labels: { datetimeUTC: false, format: axisFormat(span) },
       axisBorder: { show: false },
       axisTicks: { show: false },
     },
     yaxis: { labels: { formatter: (v) => `${Math.round(v)} W` }, min: 0 },
+    annotations,
     tooltip: { x: { format: 'dd MMM HH:mm' }, y: { formatter: (v) => `${v} W` } },
   });
   return <Chart options={options} series={[{ name: 'Potencia', data: points }]} type="area" height="100%" />;
@@ -115,7 +153,9 @@ const PVPC_COLOR = '#f59e0b';
 // Potencia con el precio PVPC por horas detrás (50 % de transparencia). Son dos gráficas superpuestas con
 // exactamente las mismas series y ejes para que coincidan píxel a píxel: la de atrás solo pinta las barras
 // de precio y la de delante solo la potencia (más los ejes y el tooltip).
-function PowerWithPvpc({ base, points, bars, from, span }: { base: ApexOptions; points: number[][]; bars: number[][]; from: number; span: number }) {
+function PowerWithPvpc({ base, points, bars, from, to, span, annotations }: {
+  base: ApexOptions; points: number[][]; bars: number[][]; from: number; to?: number; span: number; annotations: ApexOptions['annotations'];
+}) {
   const series = [
     { name: 'Potencia', type: 'area', data: points },
     { name: 'PVPC', type: 'area', data: bars },
@@ -135,10 +175,13 @@ function PowerWithPvpc({ base, points, bars, from, span }: { base: ApexOptions; 
           },
       legend: { show: false },
       markers: { size: 0 },
+      // Las franjas de corte van en la capa de atrás para quedar detrás de la potencia.
+      ...(back ? { annotations } : {}),
       xaxis: {
         type: 'datetime',
         min: from,
-        labels: { datetimeUTC: false, format: span <= 36 * 3600_000 ? 'HH:mm' : 'dd MMM' },
+        max: to,
+        labels: { datetimeUTC: false, format: axisFormat(span) },
         axisBorder: { show: false },
         axisTicks: { show: false },
       },
@@ -214,7 +257,7 @@ export function HourlyBars({ hourly, peakHour }: { hourly: number[]; peakHour: n
   );
 }
 
-export function ClimateChart({ data, from }: { data: EnergyData[]; from: number }) {
+export function ClimateChart({ data, from, to }: { data: EnergyData[]; from: number; to?: number }) {
   const base = useBase();
   const pts = downsample(data, 200);
   const options: ApexOptions = merge(base, {
@@ -225,7 +268,8 @@ export function ClimateChart({ data, from }: { data: EnergyData[]; from: number 
     xaxis: {
       type: 'datetime',
       min: from,
-      labels: { datetimeUTC: false, format: 'HH:mm' },
+      max: to,
+      labels: { datetimeUTC: false, format: to != null && to - from > 36 * 3600_000 ? axisFormat(to - from) : 'HH:mm' },
       axisBorder: { show: false },
       axisTicks: { show: false },
     },
