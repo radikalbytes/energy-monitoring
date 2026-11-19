@@ -607,7 +607,7 @@ export default function Home() {
                 <Mini icon="thermo" label="Media periodo" value={summary.avgTemp !== null ? `${fmt(summary.avgTemp, 1)} °C` : '—'} tint="text-orange-500 bg-orange-500/10" />
                 <Mini icon="drop" label="Media periodo" value={summary.avgHum !== null ? `${fmt(summary.avgHum, 0)} %` : '—'} tint="text-sky-500 bg-sky-500/10" />
               </div>
-              <div className="h-60"><ClimateChart data={climateRows} from={from} to={rangeTo} /></div>
+              <div className="h-60"><ClimateChart data={climateRows} from={from} to={rangeTo} outages={outageBands} /></div>
             </Card>
             <Card>
               <CardHeader title="Consejos para ti" subtitle="Generados con tus datos" />

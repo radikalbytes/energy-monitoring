@@ -115,6 +115,26 @@ function outageAnnotations(outages: OutageBand[], from: number, to: number): Ape
   };
 }
 
+// Durante un corte no hay suministro: se fuerza 0 en las series en vez de unir la última lectura antes del corte
+// con la primera de después. Se quitan los puntos dentro del corte y se añaden ceros justo tras su inicio y
+// justo antes de su fin (o hasta el final del periodo si sigue sin luz). `pts` son filas [timestamp, ...valores].
+const EDGE_MS = 1000;
+function zeroDuringOutages(pts: (number | null)[][], outages: OutageBand[], from: number, to: number): (number | null)[][] {
+  const inRange = outages.filter((o) => o.start < to && (o.end ?? to) > from);
+  if (!inRange.length) return pts;
+  const width = pts[0]?.length ?? 2;
+  const zero = (ts: number) => [ts, ...Array(width - 1).fill(0)];
+  const inside = (ts: number) => inRange.some((o) => ts > o.start && ts < (o.end ?? Infinity));
+  const out = pts.filter((p) => !inside(p[0] as number));
+  for (const o of inRange) {
+    const a = Math.max(o.start + EDGE_MS, from);
+    const b = Math.min(o.end != null ? o.end - EDGE_MS : to, to);
+    if (b < a) continue;
+    out.push(zero(a), zero(b));
+  }
+  return out.sort((x, y) => (x[0] as number) - (y[0] as number));
+}
+
 // Formato del eje X según la duración del periodo.
 const axisFormat = (span: number) => (span <= 36 * 3600_000 ? 'HH:mm' : span <= 4 * 86400_000 ? 'dd MMM HH:mm' : 'dd MMM');
 
@@ -122,15 +142,15 @@ export function PowerArea({ data, from, to, pvpc = [], discount = 0, outages = [
   data: EnergyData[]; from: number; to?: number; pvpc?: PvpcPoint[]; discount?: number; outages?: OutageBand[];
 }) {
   const base = useBase();
-  const points = downsample(data, 400).map((d) => [d.timestamp, Math.round(d.power)]);
   const end = to ?? Date.now();
+  const points = zeroDuringOutages(downsample(data, 400).map((d) => [d.timestamp, Math.round(d.power)]), outages, from, end) as number[][];
   const span = end - from;
   const annotations = outageAnnotations(outages, from, end);
   const bars = pvpcBars(pvpc, from, end, 1 - discount);
   if (bars.length) return <PowerWithPvpc base={base} points={points} bars={bars} from={from} to={to} span={span} annotations={annotations} />;
   const options: ApexOptions = merge(base, {
     chart: { type: 'area', zoom: { enabled: false } },
-    stroke: { curve: 'smooth', width: 2.5 },
+    stroke: { curve: 'monotoneCubic', width: 2.5 },
     colors: [COLORS.power],
     fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.45, opacityTo: 0.02, stops: [0, 95] } },
     xaxis: {
@@ -164,7 +184,7 @@ function PowerWithPvpc({ base, points, bars, from, to, span, annotations }: {
     merge(base, {
       chart: { type: 'area', zoom: { enabled: false }, ...(back ? { foreColor: 'transparent' } : {}) },
       ...(back ? { grid: { borderColor: 'transparent' } } : {}),
-      stroke: { curve: ['smooth', 'stepline'], width: back ? [0, 0] : [2.5, 0] },
+      stroke: { curve: ['monotoneCubic', 'stepline'], width: back ? [0, 0] : [2.5, 0] },
       colors: [COLORS.power, PVPC_COLOR],
       fill: back
         ? { type: 'solid', opacity: [0, 0.5] }
@@ -257,12 +277,15 @@ export function HourlyBars({ hourly, peakHour }: { hourly: number[]; peakHour: n
   );
 }
 
-export function ClimateChart({ data, from, to }: { data: EnergyData[]; from: number; to?: number }) {
+export function ClimateChart({ data, from, to, outages = [] }: { data: EnergyData[]; from: number; to?: number; outages?: OutageBand[] }) {
   const base = useBase();
-  const pts = downsample(data, 200);
+  const rows = zeroDuringOutages(
+    downsample(data, 200).map((d) => [d.timestamp, d.temperature, isValidHumidity(d) ? d.humidity : null]),
+    outages, from, to ?? Date.now(),
+  );
   const options: ApexOptions = merge(base, {
     chart: { type: 'line' },
-    stroke: { curve: 'smooth', width: [2.5, 2.5] },
+    stroke: { curve: 'monotoneCubic', width: [2.5, 2.5] },
     colors: [COLORS.temp, COLORS.hum],
     legend: { position: 'top', horizontalAlign: 'right', markers: { size: 6 } },
     xaxis: {
@@ -280,8 +303,8 @@ export function ClimateChart({ data, from, to }: { data: EnergyData[]; from: num
     tooltip: { x: { format: 'dd MMM HH:mm' } },
   });
   const series = [
-    { name: 'Temperatura', data: pts.map((d) => ({ x: d.timestamp, y: d.temperature })) },
-    { name: 'Humedad', data: pts.map((d) => ({ x: d.timestamp, y: isValidHumidity(d) ? d.humidity : null })) },
+    { name: 'Temperatura', data: rows.map(([x, t]) => ({ x: x as number, y: t })) },
+    { name: 'Humedad', data: rows.map(([x, , h]) => ({ x: x as number, y: h })) },
   ];
   return <Chart options={options} series={series} type="line" height="100%" />;
 }
