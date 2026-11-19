@@ -11,6 +11,7 @@ import {
 } from '../lib/tariffs';
 import { Card, CardHeader, Delta, Icon, StatCard } from '../components/ui';
 import { ClimateChart, ConsumptionBars, HourlyBars, PowerArea, PowerGauge, PvpcChart } from '../components/Charts';
+import { OutageLog } from '../components/OutageLog';
 import SettingsModal, { useSettings } from '../components/SettingsModal';
 
 const REFRESH_MS = 60_000;
@@ -536,6 +537,9 @@ export default function Home() {
               </ul>
             </Card>
           </div>
+
+          {/* Cortes de luz */}
+          <OutageLog uuid={device} demo={demo} />
         </div>
       )}
 
