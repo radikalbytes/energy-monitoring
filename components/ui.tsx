@@ -32,9 +32,9 @@ export function Icon({ name, className = 'h-5 w-5' }: { name: IconName; classNam
   );
 }
 
-export function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
+export function Card({ children, className = '', id }: { children: ReactNode; className?: string; id?: string }) {
   return (
-    <section className={`rounded-3xl border border-slate-200/70 bg-white p-5 shadow-card dark:border-white/10 dark:bg-slate-900/70 dark:shadow-none sm:p-6 ${className}`}>
+    <section id={id} className={`rounded-3xl border border-slate-200/70 bg-white p-5 shadow-card dark:border-white/10 dark:bg-slate-900/70 dark:shadow-none sm:p-6 ${className}`}>
       {children}
     </section>
   );

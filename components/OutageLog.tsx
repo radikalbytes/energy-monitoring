@@ -32,7 +32,13 @@ const KIND_LABEL: Record<Outage['kind'], string> = {
 };
 
 // Registro de cortes de luz: cuándo se perdió el suministro y cuándo volvió.
-export function OutageLog({ uuid, demo }: { uuid: string | null; demo: boolean }) {
+// Al pulsar un corte se llama a `onSelect` para cargar los datos de ese día en las gráficas.
+export function OutageLog({ uuid, demo, onSelect, selected }: {
+  uuid: string | null;
+  demo: boolean;
+  onSelect?: (o: Outage) => void;
+  selected?: number | null; // `start` del corte que se está viendo
+}) {
   const [data, setData] = useState<OutageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -108,6 +114,7 @@ export function OutageLog({ uuid, demo }: { uuid: string | null; demo: boolean }
             </p>
           ) : (
             <div className="overflow-x-auto">
+              {onSelect && <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">Pulsa un corte para ver en las gráficas los datos de ese día.</p>}
               <table className="w-full min-w-[560px] text-left text-sm">
                 <thead className="text-xs uppercase tracking-wide text-slate-400">
                   <tr>
@@ -119,7 +126,14 @@ export function OutageLog({ uuid, demo }: { uuid: string | null; demo: boolean }
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
                   {list.map((o) => (
-                    <tr key={o.start} className="text-slate-700 dark:text-slate-300">
+                    <tr
+                      key={o.start}
+                      onClick={onSelect ? () => onSelect(o) : undefined}
+                      onKeyDown={onSelect ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(o); } } : undefined}
+                      tabIndex={onSelect ? 0 : undefined}
+                      title={onSelect ? 'Ver los datos de ese día' : undefined}
+                      className={`text-slate-700 dark:text-slate-300 ${onSelect ? 'cursor-pointer transition hover:bg-indigo-50 focus:bg-indigo-50 focus:outline-none dark:hover:bg-indigo-500/10 dark:focus:bg-indigo-500/10' : ''} ${selected === o.start ? 'bg-indigo-50 dark:bg-indigo-500/10' : ''}`}
+                    >
                       <td className="py-2.5 pr-3 font-medium tabular-nums text-slate-900 dark:text-white">{fmtDateTime(o.start)}</td>
                       <td className="py-2.5 pr-3 tabular-nums">
                         {o.end == null ? (

@@ -12,6 +12,7 @@ import {
 import { Card, CardHeader, Delta, Icon, StatCard } from '../components/ui';
 import { ClimateChart, ConsumptionBars, HourlyBars, OutageBand, PowerArea, PowerGauge, PvpcChart } from '../components/Charts';
 import { OutageLog } from '../components/OutageLog';
+import type { Outage } from '../lib/outages';
 import SettingsModal, { useSettings } from '../components/SettingsModal';
 
 const REFRESH_MS = 60_000;
@@ -62,6 +63,21 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+
+  // Corte elegido en el registro: se cargan los datos del día (o días) en que ocurrió.
+  const [selectedOutage, setSelectedOutage] = useState<number | null>(null);
+  const showOutageDay = useCallback((o: Outage) => {
+    const start = isoDay(o.start);
+    let end = isoDay(o.end ?? Date.now());
+    // Un corte de varios días se recorta al máximo del intervalo personalizado.
+    const maxEnd = isoDay(new Date(`${start}T12:00:00`).getTime() + (MAX_CUSTOM_DAYS - 1) * 86400_000);
+    if (end > maxEnd) end = maxEnd;
+    setSelectedOutage(o.start);
+    setCustom({ start, end });
+    setPeriod('custom');
+    // Tras renderizar (aparece el selector de fechas encima), se baja a la gráfica de potencia.
+    setTimeout(() => document.getElementById('grafica-potencia')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  }, []);
 
   const isCustom = period === 'custom';
   const periodDef = PERIODS.find((p) => p.key === period);
@@ -358,7 +374,7 @@ export default function Home() {
         </div>
       </header>
 
-      {isCustom && <RangePicker value={custom} onChange={setCustom} />}
+      {isCustom && <RangePicker value={custom} onChange={(r) => { setSelectedOutage(null); setCustom(r); }} />}
 
       {(demo || apiError) && (
         <div className={`mb-6 flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${apiError ? 'border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200' : 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200'}`}>
@@ -465,7 +481,7 @@ export default function Home() {
 
           {/* Potencia + presupuesto */}
           <div className="grid gap-5 lg:grid-cols-3">
-            <Card className="lg:col-span-2">
+            <Card id="grafica-potencia" className="lg:col-span-2 scroll-mt-6">
               <CardHeader title="Potencia en tiempo real" subtitle={`Evolución de la potencia · ${periodLabel}`} />
               <div className="h-72"><PowerArea data={current} from={from} to={rangeTo} pvpc={isPvpc ? pvpcChart : []} discount={discountActive ? discountRate : 0} outages={outageBands} /></div>
             </Card>
@@ -613,7 +629,7 @@ export default function Home() {
           </div>
 
           {/* Cortes de luz */}
-          <OutageLog uuid={device} demo={demo} />
+          <OutageLog uuid={device} demo={demo} onSelect={showOutageDay} selected={isCustom ? selectedOutage : null} />
         </div>
       )}
 
@@ -695,6 +711,8 @@ function Skeleton() {
 // Selector de intervalo personalizado: días completos, ambos incluidos, hasta MAX_CUSTOM_DAYS días.
 function RangePicker({ value, onChange }: { value: CustomRange; onChange: (r: CustomRange) => void }) {
   const [draft, setDraft] = useState(value);
+  // Si el intervalo cambia desde fuera (p. ej. al pulsar un corte), se refleja en los campos.
+  useEffect(() => setDraft(value), [value]);
   const today = isoDay(Date.now());
   const dayMs = (s: string) => new Date(`${s}T00:00:00`).getTime();
   const days = draft.start && draft.end ? Math.round((dayMs(draft.end) - dayMs(draft.start)) / 86400_000) + 1 : 0;
