@@ -42,7 +42,23 @@ export interface Outage {
   // ¿Se reinició el ESP32? true/false según la fase de envío; null si no se puede saber.
   rebooted?: boolean | null;
   missed?: number; // lecturas que faltan
+  before?: OutageContext | null; // qué pasaba justo antes (para buscar la causa de un disparo)
 }
+
+// Situación en los minutos previos a un corte o microcorte.
+export interface OutageContext {
+  lastPower: number; // W en la última lectura antes del corte
+  peak5m: number; // W máximos en los 5 min previos
+  base: number | null; // W habituales entre 15 y 5 min antes (mediana)
+  jump: boolean; // hubo un salto brusco de consumo justo antes
+  temperature: number | null;
+  humidity: number | null;
+}
+
+const CONTEXT_PEAK_MS = 5 * 60_000;
+const CONTEXT_BASE_MS = 15 * 60_000;
+// Salto de consumo: al menos esto por encima de lo habitual y un 50 % más.
+const JUMP_MIN_W = 500;
 
 const median = (v: number[]) => {
   const a = [...v].sort((x, y) => x - y);
@@ -181,3 +197,35 @@ export function detectOutages(rows: OutageRow[], now = Date.now(), minGap = OUTA
 export type OutageCategory = 'cut' | 'micro' | 'network';
 export const outageCategory = (o: Pick<Outage, 'kind' | 'rebooted'>): OutageCategory =>
   o.kind === 'micro' ? 'micro' : o.kind === 'gap' && o.rebooted === false ? 'network' : 'cut';
+
+// Busca la última lectura con timestamp <= ts (las filas están ordenadas).
+function lastIndexAtOrBefore(rows: { timestamp: number }[], ts: number): number {
+  let lo = 0, hi = rows.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].timestamp <= ts) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return ans;
+}
+
+// Consumo, temperatura y humedad justo antes de `start` (inicio de un corte).
+export function outageContext(rows: OutageRow[], start: number): OutageContext | null {
+  const end = lastIndexAtOrBefore(rows, start);
+  if (end < 0) return null;
+  const alive: OutageRow[] = [];
+  for (let i = end; i >= 0 && rows[i].timestamp > start - CONTEXT_BASE_MS; i--) if (!isDeadReading(rows[i])) alive.push(rows[i]);
+  if (!alive.length) return null;
+  const recent = alive.filter((r) => r.timestamp > start - CONTEXT_PEAK_MS).map((r) => r.power);
+  const older = alive.filter((r) => r.timestamp <= start - CONTEXT_PEAK_MS).map((r) => r.power);
+  const peak5m = recent.length ? Math.max(...recent) : alive[0].power;
+  const base = older.length ? median(older) : null;
+  const climate = alive.find((r) => !(r.temperature === 0 && r.humidity === 0));
+  return {
+    lastPower: Math.round(alive[0].power),
+    peak5m: Math.round(peak5m),
+    base: base == null ? null : Math.round(base),
+    jump: base != null && peak5m - base >= JUMP_MIN_W && peak5m >= base * 1.5,
+    temperature: climate ? climate.temperature : null,
+    humidity: climate && climate.humidity > 0 && climate.humidity <= 95 ? climate.humidity : null,
+  };
+}

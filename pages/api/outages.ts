@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createClient } from '@supabase/supabase-js';
-import { OUTAGE_MIN_GAP_MS, OutageRow, detectOutages } from '../../lib/outages';
+import { OUTAGE_MIN_GAP_MS, OutageRow, detectOutages, outageCategory, outageContext } from '../../lib/outages';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
 const supabaseKey = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as string;
@@ -51,6 +51,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     let outages = detectOutages(rows, now).reverse(); // más recientes primero
+    // Qué se consumía justo antes de cada corte o microcorte (no en los fallos de conexión).
+    outages = outages.map((o) => (outageCategory(o) === 'network' ? o : { ...o, before: outageContext(rows, o.start) }));
     if (ranged) outages = outages.filter((o) => o.start < toMs && (o.end ?? now) > fromMs);
     res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
     return res.status(200).json({
