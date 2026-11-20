@@ -4,6 +4,7 @@ import { useTheme } from 'next-themes';
 import { Bucket, isValidHumidity } from '../lib/energy';
 import { EnergyData } from '../types/energyData';
 import { BAND_COLORS, BAND_LABELS, HourBand, PvpcPoint } from '../lib/tariffs';
+import { OutageKind, outageCategory } from '../lib/outages';
 
 const Chart = dynamic(() => import('react-apexcharts'), {
   ssr: false,
@@ -89,38 +90,50 @@ function pvpcBars(pvpc: PvpcPoint[], from: number, to: number, factor: number): 
 export interface OutageBand {
   start: number;
   end: number | null; // null = sigue sin luz
+  kind?: OutageKind;
+  rebooted?: boolean | null;
 }
 
 const OUTAGE_COLOR = '#ef4444';
+const MICRO_COLOR = '#f59e0b';
+const NETWORK_COLOR = '#94a3b8';
 
-// Franjas rojas en el eje X para los cortes de luz dentro del periodo [from, to].
+// Franjas en el eje X dentro del periodo [from, to]: rojo para cortes de luz, ámbar para microcortes (el corte
+// ocurrió en algún momento entre ambas lecturas) y gris para huecos sin datos en los que el ESP32 siguió encendido.
 function outageAnnotations(outages: OutageBand[], from: number, to: number): ApexOptions['annotations'] {
   return {
     xaxis: outages
       .filter((o) => o.start < to && (o.end ?? to) > from)
-      .map((o) => ({
-        x: Math.max(o.start, from),
-        x2: Math.min(o.end ?? to, to),
-        fillColor: OUTAGE_COLOR,
-        opacity: 0.18,
-        borderColor: OUTAGE_COLOR,
-        strokeDashArray: 0,
-        label: {
-          text: o.end == null ? 'Sin luz' : 'Corte',
-          orientation: 'horizontal',
-          borderColor: OUTAGE_COLOR,
-          style: { color: '#fff', background: OUTAGE_COLOR, fontSize: '10px' },
-        },
-      })),
+      .map((o) => {
+        const cat = outageCategory({ kind: o.kind ?? 'gap', rebooted: o.rebooted });
+        const color = cat === 'micro' ? MICRO_COLOR : cat === 'network' ? NETWORK_COLOR : OUTAGE_COLOR;
+        const text = cat === 'micro' ? 'Microcorte' : cat === 'network' ? 'Sin datos' : o.end == null ? 'Sin luz' : 'Corte';
+        return {
+          x: Math.max(o.start, from),
+          x2: Math.min(o.end ?? to, to),
+          fillColor: color,
+          opacity: cat === 'cut' ? 0.18 : 0.25,
+          borderColor: color,
+          strokeDashArray: 0,
+          label: {
+            text,
+            orientation: 'horizontal',
+            borderColor: color,
+            style: { color: '#fff', background: color, fontSize: '10px' },
+          },
+        };
+      }),
   };
 }
 
-// Durante un corte no hay suministro: se fuerza 0 en las series en vez de unir la última lectura antes del corte
+// Durante un corte de luz no hay suministro: se fuerza 0 en las series en vez de unir la última lectura antes del corte
 // con la primera de después. Se quitan los puntos dentro del corte y se añaden ceros justo tras su inicio y
 // justo antes de su fin (o hasta el final del periodo si sigue sin luz). `pts` son filas [timestamp, ...valores].
 const EDGE_MS = 1000;
 function zeroDuringOutages(pts: (number | null)[][], outages: OutageBand[], from: number, to: number): (number | null)[][] {
-  const inRange = outages.filter((o) => o.start < to && (o.end ?? to) > from);
+  // Solo los cortes de luz: en un microcorte no se sabe cuándo se fue la luz, y en un fallo de conexión
+  // el ESP32 siguió encendido (hubo suministro aunque no lleguen lecturas).
+  const inRange = outages.filter((o) => o.start < to && (o.end ?? to) > from && outageCategory({ kind: o.kind ?? 'gap', rebooted: o.rebooted }) === 'cut');
   if (!inRange.length) return pts;
   const width = pts[0]?.length ?? 2;
   const zero = (ts: number) => [ts, ...Array(width - 1).fill(0)];
